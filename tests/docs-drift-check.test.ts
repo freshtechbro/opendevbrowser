@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 async function loadDocsDriftModule() {
   vi.resetModules();
-  vi.unmock("fs");
-  vi.unmock("node:fs");
+  vi.doUnmock("fs");
+  vi.doUnmock("node:fs");
   return import("../scripts/docs-drift-check.mjs");
 }
 

@@ -1,17 +1,17 @@
 # OpenDevBrowser Dependency Inventory
 
 Status: active  
-Last updated: 2026-06-28
+Last updated: 2026-07-02
 
 This document tracks runtime and build dependencies across the repository.
 
-## Source metadata audit (2026-06-28)
+## Source metadata audit (2026-07-02)
 
 Verified source files:
-- `package.json` version: `0.0.38`
-- `package-lock.json` top-level version and `packages[""]` version: `0.0.38`
-- `extension/manifest.json` version: `0.0.38`
-- `extension/package.json` version: `0.0.38`
+- `package.json` version: `0.0.39`
+- `package-lock.json` top-level version and `packages[""]` version: `0.0.39`
+- `extension/manifest.json` version: `0.0.39`
+- `extension/package.json` version: `0.0.39`
 - `eslint.config.js`: flat config for `src/**/*.ts` and `tests/**/*.ts`, using `@typescript-eslint/parser`, `ecmaVersion: "latest"`, module source type, and no custom rules
 - public repo config files found for this audit: `eslint.config.js`, `tsconfig.json`, `vitest.config.ts`, and `extension/tsconfig.json`
 - no public Vite config and no public `frontend/` application directory are present in this repo

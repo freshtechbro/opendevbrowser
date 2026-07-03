@@ -1,12 +1,12 @@
 # Public Release Runbook
 
-Last updated: 2026-07-01
+Last updated: 2026-07-02
 
 Canonical runbook for shipping OpenDevBrowser public releases (npm package + GitHub release artifacts) from this repository.
 
 ## Current source-backed release reference
 
-As of the 2026-07-01 release prep, the checked-in release version is `0.0.38` across `package.json`, root `package-lock.json`, `package-lock.json#packages[""]`, `extension/manifest.json`, and `extension/package.json`. The current version-scoped release ledger is `docs/RELEASE_0.0.38_EVIDENCE.md`; `docs/RELEASE_0.0.37_EVIDENCE.md` and older ledgers are historical.
+As of the 2026-07-02 release prep, the checked-in release version is `0.0.39` across `package.json`, root `package-lock.json`, `package-lock.json#packages[""]`, `extension/manifest.json`, and `extension/package.json`. The current version-scoped release ledger is `docs/RELEASE_0.0.39_EVIDENCE.md`; `docs/RELEASE_0.0.38_EVIDENCE.md` and older ledgers are historical.
 
 Use `npm run version:check` as the authoritative local parity check for those five version fields before tagging or publishing.
 
@@ -242,7 +242,7 @@ npm deprecate opendevbrowser@X.Y.Z "deprecated: use <fixed-version>"
 
 ## Evidence to retain
 
-- Active version-scoped release evidence ledger path, currently `docs/RELEASE_0.0.38_EVIDENCE.md` for package version `0.0.38`
+- Active version-scoped release evidence ledger path, currently `docs/RELEASE_0.0.39_EVIDENCE.md` for package version `0.0.39`
 - Release workflow run URL
 - npm published version output (or explicit publish deferral for manual dry runs)
 - `artifacts/release/vX.Y.Z/registry-consumer-smoke.json`

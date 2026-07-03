@@ -35,8 +35,8 @@ async function importPackageAssets(options?: {
 
 afterEach(() => {
   vi.resetModules();
-  vi.unmock("fs");
-  vi.unmock("url");
+  vi.doUnmock("fs");
+  vi.doUnmock("url");
 });
 
 describe("package-assets", () => {

@@ -144,7 +144,7 @@ src/cli/
 - Run strict live release gates:
   - `node scripts/provider-direct-runs.mjs --release-gate`
   - `node scripts/live-regression-direct.mjs --release-gate`
-- Follow `docs/RELEASE_RUNBOOK.md` and the current version-scoped release evidence doc for final sign-off. For package version `0.0.38`, use `docs/RELEASE_0.0.38_EVIDENCE.md`.
+- Follow `docs/RELEASE_RUNBOOK.md` and the current version-scoped release evidence doc for final sign-off. For package version `0.0.39`, use `docs/RELEASE_0.0.39_EVIDENCE.md`.
 - Keep command/flag/channel inventories synchronized with `docs/CLI.md` and `docs/SURFACE_REFERENCE.md`.
 
 ## Layered AGENTS

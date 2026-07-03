@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.39] - 2026-07-02
+
+### Changed
+- Aligned release-facing package, lockfile, extension manifest, extension package metadata, and evidence docs for `0.0.39`.
+- Updated skill install and runtime guidance so Agents global and project-local skill targets are documented as managed sync destinations.
+
+### Fixed
+- Hardened bundled OpenDevBrowser skill lifecycle sync so npm install and update paths can refresh Agents skill roots without overwriting unrelated user-authored packs.
+- Stabilized Pinterest Inspiredesign pin-media capture setup so manifest-backed pin media can satisfy product-ready authority instead of diagnostic-only output.
+
 ## [0.0.38] - 2026-07-01
 
 ### Changed
@@ -297,7 +307,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core browser management
 - Basic snapshot pipeline
 
-[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.38...HEAD
+[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.39...HEAD
+[0.0.39]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.38...v0.0.39
 [0.0.38]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.37...v0.0.38
 [0.0.37]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.36...v0.0.37
 [0.0.36]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.35...v0.0.36

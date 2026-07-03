@@ -1,6 +1,6 @@
 # OpenDevBrowser Distribution Plan
 
-Last updated: 2026-06-28
+Last updated: 2026-07-02
 
 This document is the active distribution plan for the split model:
 - public repo for runtime + release artifacts
@@ -17,10 +17,10 @@ Public repo no longer carries the `frontend/` application directory.
 
 ### Current public package baseline
 
-As of the 2026-07-01 package metadata audit:
-- root package version: `0.0.38`
-- root lockfile version and root package entry: `0.0.38`
-- extension manifest and extension package version: `0.0.38`
+As of the 2026-07-02 package metadata audit:
+- root package version: `0.0.39`
+- root lockfile version and root package entry: `0.0.39`
+- extension manifest and extension package version: `0.0.39`
 - package binary: `opendevbrowser` -> `dist/cli/index.js`
 - package file allowlist includes `dist`, bundled `skills`, native scripts, and built extension assets listed in `package.json`
 
@@ -174,7 +174,7 @@ npm run build --prefix frontend
 - [x] Public repo frontend source was extracted after private validation baseline.
 - [ ] Hosting production branch is enforced to `website-production`.
 - [x] Public first tagged release completed through new workflow path.
-- [x] Current public package metadata is aligned at `0.0.38` across root package, root lockfile, extension manifest, and extension package.
+- [x] Current public package metadata is aligned at `0.0.39` across root package, root lockfile, extension manifest, and extension package.
 
 ## Operational references
 
