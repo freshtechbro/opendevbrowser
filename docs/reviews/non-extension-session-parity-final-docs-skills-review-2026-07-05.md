@@ -36,4 +36,4 @@ No blocking docs, skill, or public-surface drift remains.
 
 ## Recommendation
 
-Ready for PR after final gates and selective staging.
+Ready for PR. Docs, skills, public-surface checks, and selective staging are complete.

@@ -27,4 +27,4 @@ No PR-blocking findings remain in the current diff against `076d6b5f240da0bf834d
 
 ## Recommendation
 
-Ready for PR after final gates and selective staging.
+Ready for PR. Final gates and selective staging are complete.

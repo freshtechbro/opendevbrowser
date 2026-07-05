@@ -49,4 +49,4 @@ The earlier `95.9%` branch artifact was caused by overlapping focused coverage r
 
 ## Recommendation
 
-Ready for PR after final gates and selective staging.
+Ready for PR. Final gate evidence is present and selective staging is complete.
