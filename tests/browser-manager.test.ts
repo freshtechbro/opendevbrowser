@@ -10,14 +10,21 @@ import {
   createSessionProfileRegistry,
   type SessionProfileRecord
 } from "../src/browser/session-profile-registry";
+import {
+  deleteExplicitCdpLaunchToken,
+  explicitCdpLaunchTokenMatches,
+  isExplicitCdpLaunchTokenProof,
+  recoverOrRejectExplicitCdpLease,
+  type ExplicitCdpLaunchTokenProof
+} from "../src/browser/explicit-cdp-profile-manager";
 
-const resolveCachePaths = vi.fn();
-const findChromeExecutable = vi.fn();
-const downloadChromeForTesting = vi.fn();
-const launchPersistentContext = vi.fn();
-const connectOverCDP = vi.fn();
-const loadSystemChromeCookies = vi.fn();
-const captureDom = vi.fn().mockResolvedValue({ html: "<div>ok</div>", styles: { color: "red" } });
+const resolveCachePaths = vi.hoisted(() => vi.fn());
+const findChromeExecutable = vi.hoisted(() => vi.fn());
+const downloadChromeForTesting = vi.hoisted(() => vi.fn());
+const launchPersistentContext = vi.hoisted(() => vi.fn());
+const connectOverCDP = vi.hoisted(() => vi.fn());
+const loadSystemChromeCookies = vi.hoisted(() => vi.fn());
+const captureDom = vi.hoisted(() => vi.fn().mockResolvedValue({ html: "<div>ok</div>", styles: { color: "red" } }));
 const rm = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const spawn = vi.hoisted(() => vi.fn());
 const execFileSync = vi.hoisted(() => vi.fn());
@@ -2358,6 +2365,35 @@ describe("BrowserManager", () => {
     killSpy.mockRestore();
   });
 
+  it("cleans failed explicit CDP profile starts when process probes error during termination", async () => {
+    const child = { pid: 4322, unref: vi.fn() };
+    spawn.mockReturnValue(child);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false }) as never;
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      if (pid === child.pid && signal === 0) {
+        const error = new Error("unexpected process probe failure") as NodeJS.ErrnoException;
+        error.code = "EINVAL";
+        throw error;
+      }
+      return true;
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.startExplicitCdpProfile({
+      profile: "pinterest-design",
+      port: 9333,
+      readinessTimeoutMs: 1
+    })).rejects.toThrow("Timed out waiting for explicit CDP profile");
+
+    expect(killSpy).not.toHaveBeenCalledWith(child.pid, "SIGTERM");
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    expect(registry.read("pinterest-design")).toBeNull();
+    killSpy.mockRestore();
+  });
+
   it("cleans failed explicit CDP profile starts without terminating when Chrome reports no PID", async () => {
     const child = { unref: vi.fn() };
     spawn.mockReturnValue(child);
@@ -2494,12 +2530,6 @@ describe("BrowserManager", () => {
   });
 
   it("recovers dead explicit CDP leases before restart and rejects live pid or port leases", async () => {
-    type LeaseRecoveryHarness = {
-      recoverOrRejectExplicitCdpLease(
-        registry: ReturnType<typeof createSessionProfileRegistry>,
-        record: SessionProfileRecord | null
-      ): Promise<void>;
-    };
     const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
     const deadRecord = registry.upsert({
       profileId: "dead-profile",
@@ -2574,16 +2604,12 @@ describe("BrowserManager", () => {
       };
     }) as never;
 
-    const { BrowserManager } = await import("../src/browser/browser-manager");
-    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
-    const harness = manager as unknown as LeaseRecoveryHarness;
-
-    await expect(harness.recoverOrRejectExplicitCdpLease(registry, null)).resolves.toBeUndefined();
-    await expect(harness.recoverOrRejectExplicitCdpLease(registry, { ...deadRecord, lease: undefined })).resolves.toBeUndefined();
-    await expect(harness.recoverOrRejectExplicitCdpLease(registry, deadRecord)).resolves.toBeUndefined();
+    await expect(recoverOrRejectExplicitCdpLease(registry, null)).resolves.toBeUndefined();
+    await expect(recoverOrRejectExplicitCdpLease(registry, { ...deadRecord, lease: undefined })).resolves.toBeUndefined();
+    await expect(recoverOrRejectExplicitCdpLease(registry, deadRecord)).resolves.toBeUndefined();
     expect(registry.read("dead-profile")?.lease).toBeUndefined();
-    await expect(harness.recoverOrRejectExplicitCdpLease(registry, livePidRecord)).rejects.toThrow("already running");
-    await expect(harness.recoverOrRejectExplicitCdpLease(registry, livePortRecord)).rejects.toThrow("already running");
+    await expect(recoverOrRejectExplicitCdpLease(registry, livePidRecord)).rejects.toThrow("already running");
+    await expect(recoverOrRejectExplicitCdpLease(registry, livePortRecord)).rejects.toThrow("already running");
     killSpy.mockRestore();
   });
 
@@ -2622,6 +2648,33 @@ describe("BrowserManager", () => {
       readinessTimeoutMs: 1
     })).rejects.toThrow("unsafe Chrome flag --remote-debugging-port");
 
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("uses updated config for explicit CDP profile starts", async () => {
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false }) as never;
+    const originalChromePath = "/bin/sh";
+    const updatedChromePath = process.execPath;
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({
+      chromePath: originalChromePath,
+      flags: ["--disable-background-networking"]
+    }));
+    manager.updateConfig(resolveConfig({
+      chromePath: updatedChromePath,
+      flags: ["--disable-background-networking", "--remote-debugging-port=9444"]
+    }));
+
+    await expect(manager.startExplicitCdpProfile({
+      profile: "pinterest-design",
+      port: 9333,
+      readinessTimeoutMs: 1
+    })).rejects.toThrow("unsafe Chrome flag --remote-debugging-port");
+
+    expect(findChromeExecutable).toHaveBeenCalledWith(updatedChromePath);
+    expect(findChromeExecutable).not.toHaveBeenCalledWith(originalChromePath);
     expect(spawn).not.toHaveBeenCalled();
   });
 
@@ -2981,6 +3034,64 @@ describe("BrowserManager", () => {
     killSpy.mockRestore();
   });
 
+  it("releases explicit CDP profile leases when the process exits before SIGTERM", async () => {
+    const livePid = 12348;
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: livePid,
+        port: 9333,
+        launchTokenId: "profile-start",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    await writeExplicitCdpLaunchToken({
+      profileId: "pinterest-design",
+      launchTokenId: "profile-start",
+      port: 9333,
+      pid: livePid
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9333/devtools/browser/private-id" })
+    }) as never;
+    execFileSync.mockReturnValue(`--remote-debugging-port=9333 --user-data-dir="${latestCachePaths.profileDir}"`);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      if (pid === livePid && signal === "SIGTERM") {
+        const error = new Error("process is not running") as NodeJS.ErrnoException;
+        error.code = "ESRCH";
+        throw error;
+      }
+      return true;
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.stopExplicitCdpProfile("pinterest-design");
+
+    expect(result.profile.lease).toBeUndefined();
+    expect(result.warnings).toEqual([
+      "Recorded CDP browser process was already stopped; released stale profile lease."
+    ]);
+    expect(registry.read("pinterest-design")?.lease).toBeUndefined();
+    killSpy.mockRestore();
+  });
+
   it("stops a live OpenDevBrowser-owned explicit CDP profile with matching launch-token proof", async () => {
     const livePid = 12346;
     const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
@@ -3047,24 +3158,8 @@ describe("BrowserManager", () => {
   });
 
   it("validates explicit CDP launch-token proof shapes without trusting mismatched leases", async () => {
-    type LaunchTokenProof = {
-      version: 1;
-      profileId: string;
-      launchTokenId: string;
-      port: number;
-      pid?: number;
-      createdAt: string;
-    };
-    type ExplicitCdpTokenHarness = {
-      isExplicitCdpLaunchTokenProof(value: unknown): value is LaunchTokenProof;
-      explicitCdpLaunchTokenMatches(record: SessionProfileRecord, token: LaunchTokenProof): boolean;
-      deleteExplicitCdpLaunchToken(profileDir: string): Promise<void>;
-    };
-    const { BrowserManager } = await import("../src/browser/browser-manager");
-    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
-    const harness = manager as unknown as ExplicitCdpTokenHarness;
     const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
-    const validToken: LaunchTokenProof = {
+    const validToken: ExplicitCdpLaunchTokenProof = {
       version: 1,
       profileId: "pinterest-design",
       launchTokenId: "launch-token",
@@ -3116,35 +3211,36 @@ describe("BrowserManager", () => {
       }
     });
 
-    expect(harness.isExplicitCdpLaunchTokenProof(null)).toBe(false);
-    expect(harness.isExplicitCdpLaunchTokenProof([])).toBe(false);
-    expect(harness.isExplicitCdpLaunchTokenProof({ ...validToken, version: 2 })).toBe(false);
-    expect(harness.isExplicitCdpLaunchTokenProof({ ...validToken, profileId: 123 })).toBe(false);
-    expect(harness.isExplicitCdpLaunchTokenProof({ ...validToken, launchTokenId: 123 })).toBe(false);
-    expect(harness.isExplicitCdpLaunchTokenProof({ ...validToken, port: 0 })).toBe(false);
-    expect(harness.isExplicitCdpLaunchTokenProof({ ...validToken, port: 1.5 })).toBe(false);
-    expect(harness.isExplicitCdpLaunchTokenProof({ ...validToken, pid: "12345" })).toBe(false);
-    expect(harness.isExplicitCdpLaunchTokenProof({ ...validToken, createdAt: 123 })).toBe(false);
-    expect(harness.isExplicitCdpLaunchTokenProof(validToken)).toBe(true);
+    expect(isExplicitCdpLaunchTokenProof(null)).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof([])).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof({ ...validToken, version: 2 })).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof({ ...validToken, profileId: 123 })).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof({ ...validToken, launchTokenId: 123 })).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof({ ...validToken, port: 0 })).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof({ ...validToken, port: 1.5 })).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof({ ...validToken, pid: "12345" })).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof({ ...validToken, createdAt: 123 })).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof(validToken)).toBe(true);
 
-    expect(harness.explicitCdpLaunchTokenMatches({ ...record, lease: undefined }, validToken)).toBe(false);
-    expect(harness.explicitCdpLaunchTokenMatches({ ...record, endpoint: undefined }, validToken)).toBe(false);
-    expect(harness.explicitCdpLaunchTokenMatches(record, { ...validToken, profileId: "other" })).toBe(false);
-    expect(harness.explicitCdpLaunchTokenMatches(record, { ...validToken, launchTokenId: "other" })).toBe(false);
-    expect(harness.explicitCdpLaunchTokenMatches(record, { ...validToken, port: 9444 })).toBe(false);
-    expect(harness.explicitCdpLaunchTokenMatches(record, { ...validToken, pid: 54321 })).toBe(false);
-    expect(harness.explicitCdpLaunchTokenMatches(record, validToken)).toBe(true);
-    expect(harness.explicitCdpLaunchTokenMatches(recordWithoutPid, {
+    expect(explicitCdpLaunchTokenMatches({ ...record, lease: undefined }, validToken)).toBe(false);
+    expect(explicitCdpLaunchTokenMatches({ ...record, endpoint: undefined }, validToken)).toBe(false);
+    expect(explicitCdpLaunchTokenMatches(record, { ...validToken, profileId: "other" })).toBe(false);
+    expect(explicitCdpLaunchTokenMatches(record, { ...validToken, launchTokenId: "other" })).toBe(false);
+    expect(explicitCdpLaunchTokenMatches(record, { ...validToken, port: 9444 })).toBe(false);
+    expect(explicitCdpLaunchTokenMatches(record, { ...validToken, pid: 54321 })).toBe(false);
+    expect(explicitCdpLaunchTokenMatches(record, validToken)).toBe(true);
+    expect(explicitCdpLaunchTokenMatches(recordWithoutPid, {
       ...validToken,
       profileId: "pinterest-design-no-pid",
       pid: undefined
     })).toBe(true);
 
-    const warn = vi.spyOn((manager as unknown as { logger: { warn: (...args: unknown[]) => void } }).logger, "warn");
-    await expect(harness.deleteExplicitCdpLaunchToken(join(latestCachePaths.root, "missing-profile"))).resolves.toBeUndefined();
+    const warn = vi.fn();
+    const logger = { warn };
+    await expect(deleteExplicitCdpLaunchToken(join(latestCachePaths.root, "missing-profile"), logger)).resolves.toBeUndefined();
     expect(warn).not.toHaveBeenCalled();
     await writeFsFile(join(latestCachePaths.root, "profile-file"), "not a directory", "utf8");
-    await expect(harness.deleteExplicitCdpLaunchToken(join(latestCachePaths.root, "profile-file"))).resolves.toBeUndefined();
+    await expect(deleteExplicitCdpLaunchToken(join(latestCachePaths.root, "profile-file"), logger)).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalledWith("cdp.profile_launch_token.cleanup_failed", {
       data: { errorCode: "ENOTDIR" }
     });
