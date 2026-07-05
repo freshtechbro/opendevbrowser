@@ -69,13 +69,25 @@ sub_continuity.md
 # Auto Claude data directory
 .auto-claude/
 
-# Local planning artifacts
+# Local agent, MCP, hook, and planning artifacts
+.codex/
+.codegraph
+.mcp.json
 .omo/
+.impeccable/
 .sisyphus/
 .factory/
+.debug-journal.md
 prd.json
 progress.txt
 prompt-exports/
+temp/
+
+# Local credentials and certificates
+*.pem
+*.key
+*.p12
+*.pfx
 
 # Local docs scratch
 docs/RELAY_CDP_TOKEN_PLAN.md

@@ -1,7 +1,7 @@
 import type { ParsedArgs } from "../../args";
 import { callDaemon } from "../../client";
 import { createUsageError } from "../../errors";
-import { parseNumberFlag } from "../../utils/parse";
+import { parseNumberFlag, readInlineFlagValue } from "../../utils/parse";
 import { parseGoogleAuthIntent, type GoogleAuthIntent } from "../../../core/auth-intent";
 import { isSessionOpsRelayEndpoint } from "../../../relay/relay-endpoints";
 
@@ -9,6 +9,7 @@ type ConnectArgs = {
   wsEndpoint?: string;
   host?: string;
   port?: number;
+  profile?: string;
   startUrl?: string;
   headless?: boolean;
   extensionLegacy?: boolean;
@@ -31,7 +32,20 @@ function parseConnectArgs(rawArgs: string[]): ConnectArgs {
       continue;
     }
     if (arg?.startsWith("--ws-endpoint=")) {
-      parsed.wsEndpoint = arg.split("=", 2)[1];
+      parsed.wsEndpoint = readInlineFlagValue(arg, "--ws-endpoint");
+      continue;
+    }
+    if (arg === "--profile") {
+      const value = rawArgs[i + 1];
+      if (!value) throw createUsageError("Missing value for --profile");
+      parsed.profile = value;
+      i += 1;
+      continue;
+    }
+    if (arg?.startsWith("--profile=")) {
+      const value = readInlineFlagValue(arg, "--profile");
+      if (!value) throw createUsageError("Missing value for --profile");
+      parsed.profile = value;
       continue;
     }
     if (arg === "--host") {
@@ -42,7 +56,7 @@ function parseConnectArgs(rawArgs: string[]): ConnectArgs {
       continue;
     }
     if (arg?.startsWith("--host=")) {
-      const value = arg.split("=", 2)[1];
+      const value = readInlineFlagValue(arg, "--host");
       if (!value) throw createUsageError("Missing value for --host");
       parsed.host = value;
       continue;
@@ -55,7 +69,7 @@ function parseConnectArgs(rawArgs: string[]): ConnectArgs {
       continue;
     }
     if (arg?.startsWith("--cdp-port=")) {
-      const value = arg.split("=", 2)[1];
+      const value = readInlineFlagValue(arg, "--cdp-port");
       if (!value) throw createUsageError("Missing value for --cdp-port");
       parsed.port = parseNumberFlag(value, "--cdp-port", { min: 1, max: 65535 });
       continue;
@@ -68,7 +82,7 @@ function parseConnectArgs(rawArgs: string[]): ConnectArgs {
       continue;
     }
     if (arg?.startsWith("--start-url=")) {
-      const value = arg.split("=", 2)[1];
+      const value = readInlineFlagValue(arg, "--start-url");
       if (!value) throw createUsageError("Missing value for --start-url");
       parsed.startUrl = value;
       continue;
@@ -85,7 +99,7 @@ function parseConnectArgs(rawArgs: string[]): ConnectArgs {
       continue;
     }
     if (arg?.startsWith("--google-auth-intent=")) {
-      const value = arg.split("=", 2)[1];
+      const value = readInlineFlagValue(arg, "--google-auth-intent");
       if (!value) throw createUsageError("Missing value for --google-auth-intent");
       parsed.googleAuthIntent = parseCliGoogleAuthIntent(value);
       continue;
@@ -103,6 +117,9 @@ function parseConnectArgs(rawArgs: string[]): ConnectArgs {
       continue;
     }
   }
+  if (parsed.profile && (parsed.wsEndpoint || parsed.host || parsed.port)) {
+    throw createUsageError("Use either --profile for a registry-backed CDP profile or raw --ws-endpoint/--host/--cdp-port, not both.");
+  }
   return parsed;
 }
 
@@ -117,10 +134,16 @@ function parseCliGoogleAuthIntent(value: string): GoogleAuthIntent {
 
 export const __test__ = { parseConnectArgs };
 
+function sanitizeConnectResult<T extends { sessionId: string } & Record<string, unknown>>(result: T): Omit<T, "wsEndpoint"> {
+  const { wsEndpoint: _wsEndpoint, ...safeResult } = result;
+  return safeResult;
+}
+
 export async function runSessionConnect(args: ParsedArgs) {
   const connectArgs = parseConnectArgs(args.rawArgs);
   const googleAuthUsesOpsRelay = typeof connectArgs.host === "undefined"
     && typeof connectArgs.port === "undefined"
+    && typeof connectArgs.profile === "undefined"
     && connectArgs.extensionLegacy !== true
     && (!connectArgs.wsEndpoint || isSessionOpsRelayEndpoint(connectArgs.wsEndpoint));
   if (connectArgs.googleAuthIntent === "user_owned_google" && !googleAuthUsesOpsRelay) {
@@ -130,10 +153,11 @@ export async function runSessionConnect(args: ParsedArgs) {
   }
   const result = await callDaemon("session.connect", connectArgs, {
     timeoutMs: DEFAULT_CONNECT_TIMEOUT_MS
-  }) as { sessionId: string };
+  }) as { sessionId: string } & Record<string, unknown>;
+  const data = sanitizeConnectResult(result);
   return {
     success: true,
     message: `Session connected: ${result.sessionId}`,
-    data: result
+    data
   };
 }

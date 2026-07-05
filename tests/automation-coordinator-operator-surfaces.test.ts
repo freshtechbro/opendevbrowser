@@ -5,6 +5,7 @@ import type { BrowserManagerLike, BrowserReviewResult } from "../src/browser/man
 import type { ProvidersChallengeGovernedLanesConfig } from "../src/config";
 import type { InspiredesignMediaAnalysisBinaryResolution } from "../src/inspiredesign/media-analysis";
 import type { ChallengeInspectPlan } from "../src/challenges";
+import type { RelayStatus } from "../src/relay/relay-server";
 import type {
   DesktopAccessibilityValue,
   DesktopCaptureValue,
@@ -150,6 +151,61 @@ const makeChallengePlan = (): ChallengeInspectPlan => ({
   }
 });
 
+const makeManagedProfileStatus = () => ({
+  mode: "managed" as const,
+  activeTargetId: "target-1",
+  diagnostics: {
+    authProvenance: {
+      googleAuthIntent: "none" as const,
+      profileSource: "managed_profile" as const,
+      profile: {
+        profileId: "studio",
+        displayName: "studio",
+        kind: "managed_persistent" as const,
+        scope: "opendevbrowser_owned" as const,
+        browserFamily: "chromium" as const,
+        persistent: true,
+        headless: false,
+        authCapability: "profile_continuity" as const,
+        authProof: "profile_declared" as const,
+        pathHash: "hash-1"
+      },
+      cookieBootstrap: {
+        attempted: false,
+        disabled: false,
+        importedCount: 0,
+        rejectedCount: 0
+      }
+    }
+  }
+});
+
+const makeConnectedRelayStatus = (): RelayStatus => ({
+  running: true,
+  extensionConnected: true,
+  extensionHandshakeComplete: true,
+  cdpConnected: true,
+  annotationConnected: false,
+  opsConnected: true,
+  opsOwnedTargetCount: 1,
+  canvasConnected: false,
+  pairingRequired: false,
+  instanceId: "relay-1",
+  epoch: 1,
+  health: {
+    ok: true,
+    reason: "ok",
+    extensionConnected: true,
+    extensionHandshakeComplete: true,
+    cdpConnected: true,
+    annotationConnected: false,
+    opsConnected: true,
+    opsOwnedTargetCount: 1,
+    canvasConnected: false,
+    pairingRequired: false
+  }
+});
+
 describe("automation coordinator operator surfaces", () => {
   beforeEach(() => {
     vi.mocked(buildBrowserReviewResult).mockReset();
@@ -207,10 +263,10 @@ describe("automation coordinator operator surfaces", () => {
       desktopRuntime: makeDesktopRuntime({
         status: vi.fn(async () => ({
           ...desktopStatus,
-          capabilities: ["observe.screen"]
+          capabilities: ["observe.screen" as const]
         }))
       }),
-      challengeMode: "browser_only",
+      challengeMode: "browser",
       governedLanes: {
         allowOwnedEnvironmentFixtures: false,
         allowSanctionedIdentity: false,
@@ -229,7 +285,7 @@ describe("automation coordinator operator surfaces", () => {
 
     expect(result.host.desktopObservation.accessibilityAvailable).toBe(false);
     expect(result.host.browserScopedComputerUse).toEqual({
-      mode: "browser_only",
+      mode: "browser",
       helperBridgeEnabled: false,
       governedLanes: []
     });
@@ -255,10 +311,16 @@ describe("automation coordinator operator surfaces", () => {
 
   it("omits targetId when session capability discovery is requested without one", async () => {
     const inspectChallengePlan = vi.fn(async () => makeChallengePlan());
+    const status = vi.fn(async () => makeManagedProfileStatus());
     const coordinator = createAutomationCoordinator({
       manager: {
-        inspectChallengePlan
-      } as BrowserManagerLike,
+        inspectChallengePlan,
+        status,
+        listTargets: vi.fn(async () => ({
+          activeTargetId: "target-1",
+          targets: []
+        }))
+      } as unknown as BrowserManagerLike,
       desktopRuntime: makeDesktopRuntime(),
       challengeMode: "browser_with_helper",
       governedLanes,
@@ -279,17 +341,47 @@ describe("automation coordinator operator surfaces", () => {
     });
     expect(result.session).toMatchObject({
       sessionId: "session-1",
-      challengePlan: makeChallengePlan()
+      challengePlan: makeChallengePlan(),
+      capabilities: {
+        transport: {
+          mode: "managed",
+          boundary: "managed_profile",
+          managed: true,
+          liveActiveTabReuse: "extension_ops_required"
+        },
+        profile: {
+          kind: "managed_persistent",
+          scope: "opendevbrowser_owned",
+          authCapability: "profile_continuity",
+          authProof: "profile_declared",
+          pathHashPresent: true
+        },
+        auth: {
+          googleUserOwnedAuth: "extension_ops_required",
+          cookieContinuityIsLoginProof: false
+        },
+        challengeAutomation: {
+          mode: "browser_with_helper",
+          browserScopedActions: true,
+          helperEligible: true
+        }
+      }
     });
+    expect(status).toHaveBeenCalledWith("session-1");
     expect(result.session).not.toHaveProperty("targetId");
   });
 
-  it("preserves an explicit targetId when session capability discovery includes one", async () => {
+  it("keeps session capability diagnostics when target listing is unavailable", async () => {
     const inspectChallengePlan = vi.fn(async () => makeChallengePlan());
+    const listTargets = vi.fn(async () => {
+      throw new Error("target list unavailable");
+    });
     const coordinator = createAutomationCoordinator({
       manager: {
-        inspectChallengePlan
-      } as BrowserManagerLike,
+        inspectChallengePlan,
+        status: vi.fn(async () => makeManagedProfileStatus()),
+        listTargets
+      } as unknown as BrowserManagerLike,
       desktopRuntime: makeDesktopRuntime(),
       challengeMode: "browser_with_helper",
       governedLanes,
@@ -300,13 +392,92 @@ describe("automation coordinator operator surfaces", () => {
 
     const result = await coordinator.statusCapabilities({
       browserSessionId: "session-1",
+      runMode: "browser"
+    });
+
+    expect(listTargets).toHaveBeenCalledWith("session-1", false);
+    expect(result.session?.capabilities.browserPrimitives.popupOwnershipMetadata).toBe("unavailable");
+    expect(result.session?.capabilities.profile).toEqual(expect.objectContaining({
+      kind: "managed_persistent",
+      scope: "opendevbrowser_owned",
+      authCapability: "profile_continuity"
+    }));
+  });
+
+  it("preserves an explicit targetId when session capability discovery includes one", async () => {
+    const inspectChallengePlan = vi.fn(async () => makeChallengePlan());
+    const status = vi.fn(async () => ({
+      mode: "extension" as const,
+      activeTargetId: "target-7",
+      diagnostics: {
+        authProvenance: {
+          googleAuthIntent: "user_owned_google" as const,
+          profileSource: "live_extension_profile" as const,
+          cookieBootstrap: {
+            attempted: false,
+            disabled: true,
+            importedCount: 0,
+            rejectedCount: 0
+          }
+        }
+      }
+    }));
+    const listTargets = vi.fn(async () => ({
+      activeTargetId: "target-7",
+      targets: [
+        {
+          targetId: "target-7",
+          type: "page" as const
+        },
+        {
+          targetId: "target-popup",
+          type: "page" as const,
+          openerTargetId: "target-7",
+          ownershipSource: "cdp_target_event" as const
+        }
+      ]
+    }));
+    const coordinator = createAutomationCoordinator({
+      manager: {
+        inspectChallengePlan,
+        status,
+        listTargets
+      } as unknown as BrowserManagerLike,
+      desktopRuntime: makeDesktopRuntime(),
+      challengeMode: "browser_with_helper",
+      governedLanes,
+      helperBridgeEnabled: true,
+      snapshotMaxChars: 333,
+      relayStatus: makeConnectedRelayStatus,
+      resolveMediaAnalysisBinaries: async () => mediaAnalysisCapabilities
+    });
+
+    const result = await coordinator.statusCapabilities({
+      browserSessionId: "session-1",
       targetId: "target-7"
     });
 
     expect(result.session).toMatchObject({
       sessionId: "session-1",
-      targetId: "target-7"
+      targetId: "target-7",
+      capabilities: {
+        transport: {
+          mode: "extension",
+          boundary: "extension_relay",
+          liveActiveTabReuse: "available",
+          opsRelay: true,
+          relayCdp: true
+        },
+        auth: {
+          googleAuthIntent: "user_owned_google",
+          googleUserOwnedAuth: "extension_ops_available"
+        },
+        browserPrimitives: {
+          popupOwnershipMetadata: "observed"
+        }
+      }
     });
+    expect(listTargets).toHaveBeenCalledWith("session-1", false);
   });
 
   it("applies desktop-review defaults before browser-owned verification", async () => {
@@ -363,6 +534,91 @@ describe("automation coordinator operator surfaces", () => {
         review
       }
     });
+  });
+
+  it("preserves explicit desktop-review observation settings", async () => {
+    const review: BrowserReviewResult = {
+      sessionId: "session-1",
+      targetId: "target-9",
+      mode: "managed",
+      snapshotId: "snapshot-1",
+      content: "review content",
+      truncated: false,
+      refCount: 1,
+      timingMs: 5
+    };
+    vi.mocked(buildBrowserReviewResult).mockResolvedValue(review);
+    const desktopRuntime = makeDesktopRuntime();
+    const coordinator = createAutomationCoordinator({
+      manager: {} as BrowserManagerLike,
+      desktopRuntime,
+      challengeMode: "browser_with_helper",
+      governedLanes,
+      helperBridgeEnabled: true,
+      snapshotMaxChars: 333,
+      resolveMediaAnalysisBinaries: async () => mediaAnalysisCapabilities
+    });
+
+    const result = await coordinator.reviewDesktop({
+      browserSessionId: "session-1",
+      targetId: "target-9",
+      reason: "Full desktop review",
+      capture: "desktop",
+      accessibility: "none",
+      includeActiveWindow: false
+    });
+
+    expect(desktopRuntime.activeWindow).not.toHaveBeenCalled();
+    expect(desktopRuntime.captureDesktop).toHaveBeenCalledWith({
+      reason: "Full desktop review"
+    });
+    expect(desktopRuntime.accessibilitySnapshot).not.toHaveBeenCalled();
+    expect(result.observation).toEqual(expect.objectContaining({
+      capture: {
+        capture: { path: "/tmp/full.png", mimeType: "image/png" }
+      }
+    }));
+  });
+
+  it("captures the active window when accessibility uses the active-window default", async () => {
+    const review: BrowserReviewResult = {
+      sessionId: "session-1",
+      targetId: "target-9",
+      mode: "managed",
+      snapshotId: "snapshot-1",
+      content: "review content",
+      truncated: false,
+      refCount: 1,
+      timingMs: 5
+    };
+    vi.mocked(buildBrowserReviewResult).mockResolvedValue(review);
+    const desktopRuntime = makeDesktopRuntime();
+    const coordinator = createAutomationCoordinator({
+      manager: {} as BrowserManagerLike,
+      desktopRuntime,
+      challengeMode: "browser_with_helper",
+      governedLanes,
+      helperBridgeEnabled: true,
+      snapshotMaxChars: 333,
+      resolveMediaAnalysisBinaries: async () => mediaAnalysisCapabilities
+    });
+
+    await coordinator.reviewDesktop({
+      browserSessionId: "session-1",
+      targetId: "target-9",
+      reason: "Accessibility review",
+      capture: "desktop",
+      accessibility: "active_window"
+    });
+
+    expect(desktopRuntime.activeWindow).toHaveBeenCalledWith("Accessibility review");
+    expect(desktopRuntime.captureDesktop).toHaveBeenCalledWith({
+      reason: "Accessibility review"
+    });
+    expect(desktopRuntime.accessibilitySnapshot).toHaveBeenCalledWith(
+      "Accessibility review",
+      "window-alpha"
+    );
   });
 
   it("throws when the manager does not expose inspect-plan support", async () => {

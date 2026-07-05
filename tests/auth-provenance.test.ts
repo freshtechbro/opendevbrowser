@@ -160,15 +160,106 @@ describe("auth provenance sanitization", () => {
       .toBe("Regular fallback error.");
   });
 
-  it("covers extension auth routing helper edge cases without launching browsers", () => {
+  it("covers extension auth routing helper edge cases without launching browsers", async () => {
     expect(runtimeFactoryTest.didShoppingAttachReachEquivalentPath("not a url", "https://example.com/search?q=desk"))
       .toBe(false);
+    expect(runtimeFactoryTest.didShoppingAttachReachEquivalentPath(
+      "https://shop.example.com/search?q=desk%20lamp",
+      "https://shop.example.com/s?q=desk+lamp"
+    )).toBe(true);
+    expect(runtimeFactoryTest.didShoppingAttachReachEquivalentPath(
+      "https://shop.example.com/products/123",
+      "https://shop.example.com/products/123"
+    )).toBe(false);
+    expect(runtimeFactoryTest.didShoppingAttachReachEquivalentPath(
+      "https://shop.example.com/search?q=desk",
+      "https://other.example.com/search?q=desk"
+    )).toBe(false);
     expect(runtimeFactoryTest.isRestrictedExtensionAttachUrl("not a url")).toBe(true);
+    expect(runtimeFactoryTest.isRestrictedExtensionAttachUrl("   ")).toBe(true);
+    expect(runtimeFactoryTest.isRestrictedExtensionAttachUrl("about:blank")).toBe(true);
+    expect(runtimeFactoryTest.isRestrictedExtensionAttachUrl("chrome://settings")).toBe(true);
+    expect(runtimeFactoryTest.isRestrictedExtensionAttachUrl("ftp://example.com/file")).toBe(true);
+    expect(runtimeFactoryTest.isRestrictedExtensionAttachUrl("https://example.com/search?q=desk")).toBe(false);
+    expect(runtimeFactoryTest.fallbackPublicUrl(
+      "https://accounts.google.com/o/oauth2/v2/auth?client_id=secret",
+      "none"
+    )).toBe("https://accounts.google.com/o/oauth2/v2/auth?client_id=secret");
+    expect(runtimeFactoryTest.fallbackPublicUrl("   ", "user_owned_google")).toBe("redacted_url");
+    expect(runtimeFactoryTest.fallbackPublicUrl(
+      "https://accounts.google.com/o/oauth2/v2/auth?client_id=secret",
+      "user_owned_google"
+    )).toBe("https://accounts.google.com/");
+    expect(runtimeFactoryTest.fallbackPublicUrl("about:blank", "user_owned_google")).toBe("about:blank");
+    expect(runtimeFactoryTest.fallbackPublicUrl("chrome-extension://abc/page.html", "user_owned_google"))
+      .toBe("chrome-extension://abc/");
+    expect(runtimeFactoryTest.fallbackPublicUrl("data:text/plain,secret", "user_owned_google"))
+      .toBe("data:redacted_url");
+    expect(runtimeFactoryTest.fallbackPublicUrl("not a url", "user_owned_google")).toBe("redacted_url");
+    expect(runtimeFactoryTest.readClonePageHtml(
+      `return { props: { dangerouslySetInnerHTML: { __html: ${JSON.stringify("<main>ok</main>")} }}}`
+    )).toBe("<main>ok</main>");
+    expect(runtimeFactoryTest.readClonePageHtml("return null")).toBeNull();
+    expect(runtimeFactoryTest.readClonePageHtml("return { props: { dangerouslySetInnerHTML: { __html: 42 }}}"))
+      .toBeNull();
+    expect(runtimeFactoryTest.readClonePageHtml("return { props: { dangerouslySetInnerHTML: { __html: \"unterminated }}}"))
+      .toBeNull();
+    expect(runtimeFactoryTest.isTransientFallbackCaptureError(
+      new Error("Execution context was destroyed, most likely because of a navigation.")
+    )).toBe(true);
+    expect(runtimeFactoryTest.isTransientFallbackCaptureError("Cannot find context with specified id"))
+      .toBe(true);
+    expect(runtimeFactoryTest.isTransientFallbackCaptureError(new Error("Permanent provider failure")))
+      .toBe(false);
+    const firstSnapshot = { html: "<main>hello</main>", htmlLength: 18, textLength: 5, linkCount: 1 };
+    expect(runtimeFactoryTest.isFallbackCaptureStable(null, firstSnapshot)).toBe(false);
+    expect(runtimeFactoryTest.isFallbackCaptureStable(firstSnapshot, {
+      html: "<main>hello</main>",
+      htmlLength: 18,
+      textLength: 5,
+      linkCount: 1
+    })).toBe(true);
+    expect(runtimeFactoryTest.isFallbackCaptureStable(firstSnapshot, {
+      html: "<main>hello world</main>",
+      htmlLength: 24,
+      textLength: 11,
+      linkCount: 1
+    })).toBe(true);
+    expect(runtimeFactoryTest.isFallbackCaptureStable(firstSnapshot, {
+      html: "<main>hello world</main>",
+      htmlLength: 24,
+      textLength: 11,
+      linkCount: 2
+    })).toBe(false);
 
     const challengeHandle = {} as ChallengeRuntimeHandle;
     expect(runtimeFactoryTest.createFallbackChallengeRuntimeHandle({
       createChallengeRuntimeHandle: () => challengeHandle
     } as BrowserManagerLike)).toBe(challengeHandle);
+    const resolveRefPoint = async () => ({ x: 10, y: 20 });
+    const fallbackManager = {} as BrowserManagerLike & { resolveRefPoint: typeof resolveRefPoint };
+    Object.assign(fallbackManager, {
+      status: async () => ({}),
+      goto: async () => ({}),
+      waitForLoad: async () => ({}),
+      snapshot: async () => ({}),
+      click: async () => ({}),
+      hover: async () => ({}),
+      press: async () => ({}),
+      type: async () => ({}),
+      select: async () => ({}),
+      scroll: async () => ({}),
+      pointerMove: async () => ({}),
+      pointerDown: async () => ({}),
+      pointerUp: async () => ({}),
+      drag: async () => ({}),
+      cookieList: async () => ({}),
+      cookieImport: async () => ({}),
+      debugTraceSnapshot: async () => ({}),
+      resolveRefPoint
+    });
+    await expect(runtimeFactoryTest.createFallbackChallengeRuntimeHandle(fallbackManager)
+      .resolveRefPoint("session-1", "target-1", "ref-1")).resolves.toEqual({ x: 10, y: 20 });
     expect(() => runtimeFactoryTest.createFallbackChallengeRuntimeHandle({} as BrowserManagerLike))
       .toThrow("Challenge runtime handle is unavailable for browser fallback orchestration.");
   });

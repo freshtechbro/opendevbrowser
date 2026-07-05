@@ -173,6 +173,24 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       return launchWithRelay(core, params, requireClientId(params), bindingId);
     case "session.connect":
       return connectWithRelayRouting(core, params, requireClientId(params), bindingId);
+    case "session.cdpProfile.start": {
+      const manager = requireExplicitCdpProfileManager(core);
+      return manager.startExplicitCdpProfile({
+        profile: requireString(params.profile, "profile"),
+        port: optionalNumber(params.port, "port"),
+        startUrl: optionalString(params.startUrl),
+        chromePath: optionalString(params.chromePath),
+        flags: optionalStringArray(params.flags)
+      });
+    }
+    case "session.cdpProfile.status": {
+      const manager = requireExplicitCdpProfileManager(core);
+      return manager.statusExplicitCdpProfile(requireString(params.profile, "profile"));
+    }
+    case "session.cdpProfile.stop": {
+      const manager = requireExplicitCdpProfileManager(core);
+      return manager.stopExplicitCdpProfile(requireString(params.profile, "profile"));
+    }
     case "session.disconnect":
       return disconnectSession(core, params, requireClientId(params), bindingId);
     case "session.status":
@@ -188,7 +206,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       const inspector = requireSessionInspectorHandle(core);
       return inspectSession(inspector, {
         sessionId: requireString(params.sessionId, "sessionId"),
-        includeUrls: optionalBoolean(params.includeUrls) ?? true,
+        includeUrls: optionalBoolean(params.includeUrls) ?? false,
         sinceConsoleSeq: optionalNumber(params.sinceConsoleSeq, "sinceConsoleSeq") ?? undefined,
         sinceNetworkSeq: optionalNumber(params.sinceNetworkSeq, "sinceNetworkSeq") ?? undefined,
         sinceExceptionSeq: optionalNumber(params.sinceExceptionSeq, "sinceExceptionSeq") ?? undefined,
@@ -871,6 +889,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           outputDir: resolveDaemonWorkflowOutputDir(core, optionalString(params.outputDir)),
           ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
           browserMode: optionalWorkflowBrowserMode(params.browserMode),
+          profile: optionalString(params.profile),
           useCookies: optionalBoolean(params.useCookies),
           challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode),
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
@@ -890,6 +909,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           timeoutMs: optionalNumber(params.timeoutMs, "timeoutMs"),
           outputDir: resolveDaemonWorkflowOutputDir(core, optionalString(params.outputDir)),
           ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
+          profile: optionalString(params.profile),
           useCookies: optionalBoolean(params.useCookies),
           challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode),
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
@@ -914,6 +934,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           outputDir: resolveDaemonWorkflowOutputDir(core, optionalString(params.outputDir)),
           ttlHours: optionalNumber(params.ttlHours, "ttlHours"),
           browserMode: optionalWorkflowBrowserMode(params.browserMode),
+          profile: optionalString(params.profile),
           useCookies: optionalBoolean(params.useCookies),
           challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode),
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
@@ -958,6 +979,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           ttl_hours: optionalNumber(params.ttl_hours, "ttl_hours"),
           timeoutMs: productVideoTimeoutMs,
           browserMode: optionalWorkflowBrowserMode(params.browserMode),
+          profile: optionalString(params.profile),
           useCookies: optionalBoolean(params.useCookies),
           challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode),
           cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
@@ -1155,11 +1177,13 @@ async function connectWithRelayRouting(
     ? relayUrl
     : resolvedRelayEndpoint?.normalizedEndpoint ?? null;
 
-  const hasExplicitCdp = Boolean(wsEndpoint || params.host || params.port);
+  const profile = optionalString(params.profile);
+  const hasExplicitCdp = Boolean(wsEndpoint || params.host || params.port || profile);
   const headlessExplicit = optionalBoolean(params.headless) === true;
 
   const googleAuthUsesOpsRelay = typeof params.host === "undefined"
     && typeof params.port === "undefined"
+    && !profile
     && !extensionLegacy
     && (!wsEndpoint || isSessionOpsRelayEndpoint(wsEndpoint));
 
@@ -1206,15 +1230,22 @@ async function connectWithRelayRouting(
     throw new Error("Extension relay not available. Connect the extension or pass --cdp-port/--ws-endpoint.");
   }
 
-  return core.manager.connect({
+  const result = await core.manager.connect({
     wsEndpoint,
     host: optionalString(params.host),
     port: optionalNumber(params.port, "port"),
+    profile,
     startUrl: optionalString(params.startUrl),
     googleAuthIntent,
     disableSystemCookieBootstrap: optionalBoolean(params.disableSystemCookieBootstrap),
     allowGoogleCookieBootstrap: optionalBoolean(params.allowGoogleCookieBootstrap)
   });
+  return sanitizeConnectResult(result);
+}
+
+function sanitizeConnectResult<T extends Record<string, unknown>>(result: T): Omit<T, "wsEndpoint"> {
+  const { wsEndpoint: _wsEndpoint, ...safeResult } = result;
+  return safeResult;
 }
 
 async function disconnectSession(
@@ -1268,6 +1299,21 @@ function requireSessionInspectorHandle(core: OpenDevBrowserCore) {
     throw new Error("Session inspector is unavailable for the current runtime.");
   }
   return inspector;
+}
+
+function requireExplicitCdpProfileManager(core: OpenDevBrowserCore) {
+  if (
+    !core.manager.startExplicitCdpProfile
+    || !core.manager.statusExplicitCdpProfile
+    || !core.manager.stopExplicitCdpProfile
+  ) {
+    throw new Error("Explicit CDP profile management is unavailable for the current runtime.");
+  }
+  return {
+    startExplicitCdpProfile: core.manager.startExplicitCdpProfile.bind(core.manager),
+    statusExplicitCdpProfile: core.manager.statusExplicitCdpProfile.bind(core.manager),
+    stopExplicitCdpProfile: core.manager.stopExplicitCdpProfile.bind(core.manager)
+  };
 }
 
 function readChallengeAutomationMode(

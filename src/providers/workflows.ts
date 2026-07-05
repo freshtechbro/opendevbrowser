@@ -210,6 +210,7 @@ import {
   isInspiredesignPinterestPinReferenceUrl
 } from "../inspiredesign/product-readiness";
 import { runBrowserNativeDiscovery, type BrowserNativeDiscoveryResult } from "./browser-native-discovery";
+import { resolveProviderRuntimePolicy } from "./runtime-policy";
 import type {
   BrowserFallbackMode,
   JsonValue,
@@ -225,6 +226,7 @@ import type {
   ProviderRuntimePolicyInput,
   ProviderSelection,
   ProviderSource,
+  ProviderTrustedProfileProvenance,
   WorkflowSuspendedIntentKind,
   WorkflowBrowserMode,
   InspiredesignCaptureMode
@@ -266,6 +268,7 @@ export interface ResearchRunInput {
   useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
+  profile?: string;
 }
 
 export interface ShoppingRunInput {
@@ -282,6 +285,7 @@ export interface ShoppingRunInput {
   useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
+  profile?: string;
 }
 
 export interface InspiredesignRunInput {
@@ -303,6 +307,7 @@ export interface InspiredesignRunInput {
   useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
+  profile?: string;
   cookieSource?: ProviderCookieSourceConfig;
 }
 
@@ -320,6 +325,7 @@ export interface ProductVideoRunInput {
   useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
+  profile?: string;
 }
 
 export interface ProductVideoWorkflowOptions {
@@ -333,6 +339,7 @@ export type InspiredesignWorkflowVisualCaptureOptions = {
   useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
+  profile?: string;
   cookieSource?: ProviderCookieSourceConfig;
 };
 
@@ -343,6 +350,7 @@ export type InspiredesignWorkflowMotionCaptureOptions = {
   useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
+  profile?: string;
   cookieSource?: ProviderCookieSourceConfig;
 };
 
@@ -354,6 +362,7 @@ export type InspiredesignWorkflowPinMediaCaptureOptions = {
   useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
+  profile?: string;
   cookieSource?: ProviderCookieSourceConfig;
   pinterestPageQuality?: PinterestMediaClassification["sourcePageQuality"];
 };
@@ -918,6 +927,30 @@ const withBrowserModeOverride = (
   return mergeRuntimePolicyInput(options, {
     ...(input.browserMode ? { browserMode: input.browserMode } : {})
   });
+};
+
+const withProfileOverride = (
+  options: ProviderRunOptions,
+  input: { profile?: string; browserMode?: WorkflowBrowserMode }
+): ProviderRunOptions => {
+  const profile = input.profile?.trim();
+  return mergeRuntimePolicyInput(options, {
+    ...(profile ? { profile, profileMode: "managed" } : {}),
+    ...(profile && !input.browserMode ? { browserMode: "managed" } : {})
+  });
+};
+
+const resolveManagedWorkflowTrustedProfile = (
+  input: { profile?: string; browserMode?: WorkflowBrowserMode }
+): ProviderTrustedProfileProvenance | undefined => {
+  const profile = input.profile?.trim();
+  if (!profile) {
+    return undefined;
+  }
+  if (input.browserMode && input.browserMode !== "managed") {
+    return undefined;
+  }
+  return { profile, profileMode: "managed" };
 };
 
 const WORKFLOW_KIND_BY_SUSPENDED_INTENT_KIND: Record<WorkflowSuspendedIntentKind, WorkflowKind> = {
@@ -1793,6 +1826,7 @@ const serializeInspiredesignRunInput = (input: InspiredesignResolvedInput): Reco
   ...(input.outputDir ? { outputDir: input.outputDir } : {}),
   ...(typeof input.ttlHours === "number" ? { ttlHours: input.ttlHours } : {}),
   ...(input.browserMode ? { browserMode: input.browserMode } : {}),
+  ...(input.profile ? { profile: input.profile } : {}),
   ...(typeof input.useCookies === "boolean" ? { useCookies: input.useCookies } : {}),
   ...(input.challengeAutomationMode ? { challengeAutomationMode: input.challengeAutomationMode } : {}),
   ...(input.cookiePolicyOverride ? { cookiePolicyOverride: input.cookiePolicyOverride } : {})
@@ -1921,10 +1955,13 @@ const parseInspiredesignEnvelopeInput = (input: WorkflowResumeEnvelope["input"])
     ...(typeof input.timeoutMs === "number" ? { timeoutMs: input.timeoutMs } : {}),
     ...(typeof input.outputDir === "string" ? { outputDir: input.outputDir } : {}),
     ...(typeof input.ttlHours === "number" ? { ttlHours: input.ttlHours } : {}),
-    ...(typeof input.browserMode === "string" && WORKFLOW_BROWSER_MODES.has(input.browserMode as WorkflowBrowserMode)
-      ? { browserMode: input.browserMode as WorkflowBrowserMode }
+	    ...(typeof input.browserMode === "string" && WORKFLOW_BROWSER_MODES.has(input.browserMode as WorkflowBrowserMode)
+	      ? { browserMode: input.browserMode as WorkflowBrowserMode }
+	      : {}),
+    ...(typeof input.profile === "string" && input.profile.trim().length > 0
+      ? { profile: input.profile.trim() }
       : {}),
-    ...(typeof input.useCookies === "boolean" ? { useCookies: input.useCookies } : {}),
+	    ...(typeof input.useCookies === "boolean" ? { useCookies: input.useCookies } : {}),
     ...(isChallengeAutomationMode(input.challengeAutomationMode)
       ? { challengeAutomationMode: input.challengeAutomationMode }
       : {}),
@@ -2126,12 +2163,15 @@ const buildInspiredesignFetchOptionsWithScope = (
   timeoutMs?: number
 ): ProviderRunOptions => (
   withWorkflowResumeEnvelopeIntent(
-    withBrowserModeOverride(
-      withChallengeAutomationOverride(
-        withCookieOverrides({
-          ...providerScope,
-          ...(typeof timeoutMs === "number" ? { timeoutMs } : {})
-        }, workflowInput),
+    withProfileOverride(
+      withBrowserModeOverride(
+        withChallengeAutomationOverride(
+          withCookieOverrides({
+            ...providerScope,
+            ...(typeof timeoutMs === "number" ? { timeoutMs } : {})
+          }, workflowInput),
+          workflowInput
+        ),
         workflowInput
       ),
       workflowInput
@@ -2407,14 +2447,25 @@ const discoverInspiredesignReferences = async (
   );
   const standardProviderIds = workflowInput.providers.filter((providerId) => !siteRecipeProviderIds.has(providerId));
   if (siteRecipe) {
-    const runSiteRecipeDiscovery = async (): Promise<BrowserNativeDiscoveryResult> => runBrowserNativeDiscovery({
-      recipe: siteRecipe,
-      query,
-      maxReferences: workflowInput.referenceLimit ?? workflowInput.maxReferences,
-      ...(workflowInput.browserMode ? { browserMode: workflowInput.browserMode } : {}),
-      ...(typeof workflowInput.useCookies === "boolean" ? { useCookies: workflowInput.useCookies } : {}),
-      ...(workflowInput.cookiePolicyOverride ? { cookiePolicy: workflowInput.cookiePolicyOverride } : {}),
-      fetchSearchPage: async (url) => {
+	    const runSiteRecipeDiscovery = async (): Promise<BrowserNativeDiscoveryResult> => runBrowserNativeDiscovery({
+	      recipe: siteRecipe,
+	      query,
+	      maxReferences: workflowInput.referenceLimit ?? workflowInput.maxReferences,
+	      ...(workflowInput.browserMode ? { browserMode: workflowInput.browserMode } : {}),
+	      ...(typeof workflowInput.useCookies === "boolean" ? { useCookies: workflowInput.useCookies } : {}),
+	      ...(workflowInput.cookiePolicyOverride ? { cookiePolicy: workflowInput.cookiePolicyOverride } : {}),
+      auth: resolveProviderRuntimePolicy({
+        source: toProviderSource(siteRecipe.id) ?? "web",
+        trustedProfile: resolveManagedWorkflowTrustedProfile(workflowInput),
+        runtimePolicy: {
+          ...(workflowInput.browserMode ? { browserMode: workflowInput.browserMode } : {}),
+          ...(workflowInput.profile ? { profile: workflowInput.profile, profileMode: "managed" } : {}),
+          ...(typeof workflowInput.useCookies === "boolean" ? { useCookies: workflowInput.useCookies } : {}),
+          ...(workflowInput.challengeAutomationMode ? { challengeAutomationMode: workflowInput.challengeAutomationMode } : {}),
+          ...(workflowInput.cookiePolicyOverride ? { cookiePolicyOverride: workflowInput.cookiePolicyOverride } : {})
+        }
+      }).auth,
+	      fetchSearchPage: async (url) => {
         const result = normalizeInspiredesignFetchResult(await runtime.fetch(
           { url },
           buildInspiredesignSiteRecipeFetchOptions(workflowInput, envelope, timeoutMs)
@@ -3007,10 +3058,11 @@ const captureWorkflowVisualEvidence = async (
   if (visualPlan.policy.status !== "allowed" || !visualPlan.tempPath || !captureVisualEvidence) return undefined;
   try {
     return await captureVisualEvidence(url, {
-      visualEvidencePath: visualPlan.tempPath,
-      timeoutMs,
-      browserMode: workflowInput.browserMode,
-      useCookies: workflowInput.useCookies,
+	      visualEvidencePath: visualPlan.tempPath,
+	      timeoutMs,
+	      browserMode: workflowInput.browserMode,
+      profile: workflowInput.profile,
+	      useCookies: workflowInput.useCookies,
       challengeAutomationMode: workflowInput.challengeAutomationMode,
       cookiePolicyOverride: workflowInput.cookiePolicyOverride,
       cookieSource: workflowInput.cookieSource
@@ -3033,10 +3085,11 @@ const captureWorkflowMotionEvidence = async (
   if (!captureMotionEvidence || !motionEvidenceTempDir) return undefined;
   try {
     return await captureMotionEvidence(url, {
-      outputDir: join(motionEvidenceTempDir, referenceId),
-      timeoutMs,
-      browserMode: workflowInput.browserMode,
-      useCookies: workflowInput.useCookies,
+	      outputDir: join(motionEvidenceTempDir, referenceId),
+	      timeoutMs,
+	      browserMode: workflowInput.browserMode,
+      profile: workflowInput.profile,
+	      useCookies: workflowInput.useCookies,
       challengeAutomationMode: workflowInput.challengeAutomationMode,
       cookiePolicyOverride: workflowInput.cookiePolicyOverride,
       cookieSource: workflowInput.cookieSource
@@ -3063,9 +3116,10 @@ const captureWorkflowPinMediaEvidence = async (
 		const metadata = await capturePinMediaEvidence(url, {
 			referenceId,
 			pinMediaEvidencePath,
-		timeoutMs,
-		browserMode: workflowInput.browserMode,
-		useCookies: workflowInput.useCookies,
+			timeoutMs,
+			browserMode: workflowInput.browserMode,
+			profile: workflowInput.profile,
+			useCookies: workflowInput.useCookies,
 		challengeAutomationMode: workflowInput.challengeAutomationMode,
 		cookiePolicyOverride: workflowInput.cookiePolicyOverride,
 		cookieSource: workflowInput.cookieSource,
@@ -6358,12 +6412,15 @@ export const runResearchWorkflow = async (
     stepEnvelope: WorkflowResumeEnvelope
   ): ProviderRunOptions => {
     const timeoutMs = resolveResearchProviderStepTimeoutMs(workflowInput.timeoutMs);
-    const stepOptions = withBrowserModeOverride(
-      withChallengeAutomationOverride(
-        withCookieOverrides({
-          source: step.input.source,
-          ...(typeof timeoutMs === "number" ? { timeoutMs } : {})
-        }, workflowInput),
+    const stepOptions = withProfileOverride(
+      withBrowserModeOverride(
+        withChallengeAutomationOverride(
+          withCookieOverrides({
+            source: step.input.source,
+            ...(typeof timeoutMs === "number" ? { timeoutMs } : {})
+          }, workflowInput),
+          workflowInput
+        ),
         workflowInput
       ),
       workflowInput
@@ -6576,13 +6633,16 @@ export const runShoppingWorkflow = async (
     stepEnvelope: WorkflowResumeEnvelope
   ): ProviderRunOptions => {
     const timeoutMs = remainingTimeoutMs();
-    const stepOptions = withBrowserModeOverride(
-      withChallengeAutomationOverride(
-        withCookieOverrides({
-          source: "shopping",
-          providerIds: [step.input.providerId],
-          ...(typeof timeoutMs === "number" ? { timeoutMs } : {})
-        }, workflowInput),
+    const stepOptions = withProfileOverride(
+      withBrowserModeOverride(
+        withChallengeAutomationOverride(
+          withCookieOverrides({
+            source: "shopping",
+            providerIds: [step.input.providerId],
+            ...(typeof timeoutMs === "number" ? { timeoutMs } : {})
+          }, workflowInput),
+          workflowInput
+        ),
         workflowInput
       ),
       workflowInput
@@ -7340,6 +7400,7 @@ export const runProductVideoWorkflow = async (
         ttlHours: workflowInput.ttl_hours,
         ...timeoutOptions,
         browserMode: workflowInput.browserMode,
+        profile: workflowInput.profile,
         useCookies: workflowInput.useCookies,
         challengeAutomationMode: workflowInput.challengeAutomationMode,
         cookiePolicyOverride: workflowInput.cookiePolicyOverride
@@ -7430,13 +7491,16 @@ export const runProductVideoWorkflow = async (
     details = await runtime.fetch(
       { url: productUrl },
       withWorkflowResumeEnvelopeIntent(
-        withBrowserModeOverride(
-          withChallengeAutomationOverride(
-            withCookieOverrides({
-              source,
-              providerIds: shoppingProviderId ? [shoppingProviderId] : undefined,
-              ...timeoutOptions
-            }, workflowInput),
+        withProfileOverride(
+          withBrowserModeOverride(
+            withChallengeAutomationOverride(
+              withCookieOverrides({
+                source,
+                providerIds: shoppingProviderId ? [shoppingProviderId] : undefined,
+                ...timeoutOptions
+              }, workflowInput),
+              workflowInput
+            ),
             workflowInput
           ),
           workflowInput

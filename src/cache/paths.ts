@@ -8,6 +8,7 @@ export type CachePaths = {
   projectRoot: string;
   profileDir: string;
   chromeDir: string;
+  profileRegistryDir: string;
 };
 
 function safeHash(value: string): string {
@@ -34,14 +35,16 @@ export async function resolveCachePaths(worktree: string, profile: string): Prom
   const root = join(base, "opendevbrowser");
   const projectRoot = join(root, "projects", safeHash(worktree));
   const profileDir = join(projectRoot, "profiles", profile);
+  const profileRegistryDir = join(projectRoot, "profile-registry");
   const chromeDir = join(root, "chrome");
 
   await ensureDir(root);
   await ensureDir(projectRoot);
   await ensureDir(profileDir);
+  await ensureDir(profileRegistryDir);
   await ensureDir(chromeDir);
 
-  return { root, projectRoot, profileDir, chromeDir };
+  return { root, projectRoot, profileDir, chromeDir, profileRegistryDir };
 }
 
 export async function ensureFileAbsent(path: string): Promise<void> {

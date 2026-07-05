@@ -1912,7 +1912,12 @@ describe("workflow branch coverage", () => {
       visualEvidence: "required",
       urls: ["https://example.com/reference", 7],
       captureMode: "deep",
-      includePrototypeGuidance: true
+      includePrototypeGuidance: true,
+      browserMode: "managed",
+      profile: "  studio-profile  ",
+      useCookies: true,
+      challengeAutomationMode: "browser",
+      cookiePolicyOverride: "required"
     });
     expect(parsed).toMatchObject({
       brief: "  Build a ceramic studio page  ",
@@ -1923,7 +1928,12 @@ describe("workflow branch coverage", () => {
       visualEvidence: "required",
       urls: ["https://example.com/reference"],
       captureMode: "deep",
-      includePrototypeGuidance: true
+      includePrototypeGuidance: true,
+      browserMode: "managed",
+      profile: "studio-profile",
+      useCookies: true,
+      challengeAutomationMode: "browser",
+      cookiePolicyOverride: "required"
     });
 
     const workflowInput = {
@@ -5946,6 +5956,70 @@ describe("workflow branch coverage", () => {
     });
   });
 
+  it("trims workflow profiles, defaults profile runs to managed, and preserves explicit browser mode", async () => {
+    const search = vi.fn(async () => makeAggregate({
+      sourceSelection: "shopping",
+      providerOrder: ["shopping/amazon"],
+      records: [makeRecord({
+        id: "profile-forwarded",
+        source: "shopping",
+        provider: "shopping/amazon",
+        url: "https://www.amazon.com/dp/profile-forwarded",
+        title: "Profile Forwarded",
+        content: "$39.99",
+        attributes: {
+          shopping_offer: {
+            provider: "shopping/amazon",
+            product_id: "profile-forwarded",
+            title: "Profile Forwarded",
+            url: "https://www.amazon.com/dp/profile-forwarded",
+            price: { amount: 39.99, currency: "USD", retrieved_at: isoHoursAgo(1) },
+            shipping: { amount: 0, currency: "USD", notes: "free" },
+            availability: "in_stock",
+            rating: 4.2,
+            reviews_count: 9
+          }
+        }
+      })]
+    }));
+
+    await runShoppingWorkflow(toRuntime({ search }), {
+      query: "profile default managed",
+      providers: ["shopping/amazon"],
+      profile: "  design-lab  ",
+      mode: "json"
+    });
+    await runShoppingWorkflow(toRuntime({ search }), {
+      query: "profile explicit extension",
+      providers: ["shopping/amazon"],
+      profile: "  design-lab  ",
+      browserMode: "extension",
+      mode: "json"
+    });
+
+    const defaultManagedCall = search.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+    const explicitBrowserModeCall = search.mock.calls[1]?.[1] as Record<string, unknown> | undefined;
+
+    expect(defaultManagedCall).toMatchObject({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      runtimePolicy: {
+        profile: "design-lab",
+        profileMode: "managed",
+        browserMode: "managed"
+      }
+    });
+    expect(explicitBrowserModeCall).toMatchObject({
+      source: "shopping",
+      providerIds: ["shopping/amazon"],
+      runtimePolicy: {
+        profile: "design-lab",
+        profileMode: "managed",
+        browserMode: "extension"
+      }
+    });
+  });
+
   it("resumes shopping without replaying completed provider searches", async () => {
     const resumeNowMs = Date.parse("2026-03-30T22:00:00.000Z");
     vi.spyOn(Date, "now").mockImplementation(() => resumeNowMs);
@@ -6438,6 +6512,8 @@ describe("workflow branch coverage", () => {
       product_name: "product runtime policy forwarded",
       provider_hint: "amazon",
       timeoutMs: 4321,
+      browserMode: "managed",
+      profile: "shop-profile",
       useCookies: true,
       challengeAutomationMode: "browser_with_helper",
       cookiePolicyOverride: "required",
@@ -6451,6 +6527,9 @@ describe("workflow branch coverage", () => {
       source: "shopping",
       providerIds: ["shopping/amazon"],
       runtimePolicy: {
+        browserMode: "managed",
+        profile: "shop-profile",
+        profileMode: "managed",
         useCookies: true,
         challengeAutomationMode: "browser_with_helper",
         cookiePolicyOverride: "required"
@@ -6460,6 +6539,8 @@ describe("workflow branch coverage", () => {
         providers: ["amazon"],
         mode: "json",
         timeoutMs: 4321,
+        browserMode: "managed",
+        profile: "shop-profile",
         useCookies: true,
         challengeAutomationMode: "browser_with_helper",
         cookiePolicyOverride: "required"
@@ -6473,6 +6554,9 @@ describe("workflow branch coverage", () => {
         providerIds: ["shopping/amazon"],
         timeoutMs: 4321,
         runtimePolicy: {
+          browserMode: "managed",
+          profile: "shop-profile",
+          profileMode: "managed",
           useCookies: true,
           challengeAutomationMode: "browser_with_helper",
           cookiePolicyOverride: "required"
@@ -6481,6 +6565,8 @@ describe("workflow branch coverage", () => {
           product_name: "product runtime policy forwarded",
           provider_hint: "amazon",
           timeoutMs: 4321,
+          browserMode: "managed",
+          profile: "shop-profile",
           useCookies: true,
           challengeAutomationMode: "browser_with_helper",
           cookiePolicyOverride: "required"
@@ -9405,6 +9491,7 @@ describe("workflow branch coverage", () => {
       providers: string[];
       query?: string;
       browserMode?: "managed";
+      profile?: string;
       useCookies?: boolean;
       challengeAutomationMode?: "manual";
       cookiePolicyOverride?: "never";
@@ -9445,6 +9532,7 @@ describe("workflow branch coverage", () => {
     const baseInput: WorkflowInput = {
       providers: [],
       browserMode: "managed",
+      profile: "design-profile",
       useCookies: true,
       challengeAutomationMode: "manual",
       cookiePolicyOverride: "never"
@@ -9458,7 +9546,15 @@ describe("workflow branch coverage", () => {
     });
 
     expect(discoveryHelpers.buildInspiredesignFetchOptions({ ...baseInput, providers: ["social/pinterest"] }, envelope, 3000))
-      .toMatchObject({ source: "web", timeoutMs: 3000 });
+      .toMatchObject({
+        source: "web",
+        timeoutMs: 3000,
+        runtimePolicy: {
+          browserMode: "managed",
+          profile: "design-profile",
+          profileMode: "managed"
+        }
+      });
     expect(discoveryHelpers.buildInspiredesignFetchOptions({ ...baseInput, providers: ["social/pinterest", "web/default"] }, envelope))
       .toMatchObject({ providerIds: ["web/default"] });
     expect(discoveryHelpers.buildInspiredesignReferenceFetchOptions(

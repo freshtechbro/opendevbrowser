@@ -50,6 +50,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "commands": [
           "launch",
           "connect",
+          "cdp-profile",
           "disconnect",
           "status",
           "status-capabilities",
@@ -390,8 +391,9 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "name": "connect",
         "description": "Connect to an existing browser via daemon",
-        "usage": "npx opendevbrowser connect (--ws-endpoint <url> | --host <host> --cdp-port <port>) [--start-url <url>] [--extension-legacy] [--google-auth-intent user-owned] [--disable-system-cookie-bootstrap] [--allow-google-cookie-bootstrap]",
+        "usage": "npx opendevbrowser connect (--profile <name> | --ws-endpoint <url> | --host <host> --cdp-port <port>) [--start-url <url>] [--extension-legacy] [--google-auth-intent user-owned] [--disable-system-cookie-bootstrap] [--allow-google-cookie-bootstrap]",
         "flags": [
+          "--profile",
           "--ws-endpoint",
           "--host",
           "--cdp-port",
@@ -403,6 +405,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "examples": [
           "npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222 --output-format json",
+          "npx opendevbrowser connect --profile pinterest-design --output-format json",
           "npx opendevbrowser connect --google-auth-intent user-owned --ws-endpoint ws://127.0.0.1:8787/ops --output-format json"
         ],
         "notes": [
@@ -410,6 +413,27 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "Managed and direct cdpConnect use best-effort readable system Chrome-family cookie bootstrap, but copied cookies are not Google auth proof. Google-sensitive cookies are skipped by default; use --allow-google-cookie-bootstrap only when you explicitly accept the diagnostic risk. Use --disable-system-cookie-bootstrap to skip all bootstrap for a run. Results expose sanitized diagnostics.authProvenance without private cookies, tokens, account identifiers, full profile paths, or account screenshots.",
           "After Google sign-in or account chooser actions, recover the active OAuth popup with targets-list --include-urls, then target-use --target-id <target-id>."
         ],
+        "groupId": "session_lifecycle",
+        "groupTitle": "Session Lifecycle",
+        "groupSummary": "Launch, connect, and manage browser session state."
+      },
+      {
+        "name": "cdp-profile",
+        "description": "Manage OpenDevBrowser-owned local CDP profiles",
+        "usage": "npx opendevbrowser cdp-profile <start|status|stop> --profile <name> [--cdp-port <port>] [--chrome-path <path>] [--start-url <url>] [--flag <chrome-arg>]",
+        "flags": [
+          "--profile",
+          "--cdp-port",
+          "--chrome-path",
+          "--start-url",
+          "--flag"
+        ],
+        "examples": [
+          "npx opendevbrowser cdp-profile start --profile pinterest-design --start-url https://www.pinterest.com --output-format json",
+          "npx opendevbrowser cdp-profile status --profile pinterest-design --output-format json",
+          "npx opendevbrowser cdp-profile stop --profile pinterest-design --output-format json"
+        ],
+        "notes": [],
         "groupId": "session_lifecycle",
         "groupTitle": "Session Lifecycle",
         "groupSummary": "Launch, connect, and manage browser session state."
@@ -504,7 +528,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "name": "research",
         "description": "Run research workflows",
-        "usage": "npx opendevbrowser research run --topic <text> [--days <n>|--from <date> --to <date>] [--source-selection <family>] [--sources <csv>] [--include-engagement] [--limit-per-source <n>] [--browser-mode <mode>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
+        "usage": "npx opendevbrowser research run --topic <text> [--days <n>|--from <date> --to <date>] [--source-selection <family>] [--sources <csv>] [--include-engagement] [--limit-per-source <n>] [--browser-mode <mode>] [--profile <name>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
         "flags": [
           "--topic",
           "--days",
@@ -515,6 +539,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--include-engagement",
           "--limit-per-source",
           "--browser-mode",
+          "--profile",
           "--mode",
           "--timeout-ms",
           "--output-dir",
@@ -538,13 +563,14 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "name": "shopping",
         "description": "Run shopping workflows",
-        "usage": "npx opendevbrowser shopping run --query <text> [--providers <csv>] [--budget <amount>] [--region <region>] [--browser-mode <mode>] [--sort <mode>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
+        "usage": "npx opendevbrowser shopping run --query <text> [--providers <csv>] [--budget <amount>] [--region <region>] [--browser-mode <mode>] [--profile <name>] [--sort <mode>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
         "flags": [
           "--query",
           "--providers",
           "--budget",
           "--region",
           "--browser-mode",
+          "--profile",
           "--sort",
           "--mode",
           "--timeout-ms",
@@ -569,7 +595,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "name": "product-video",
         "description": "Run product presentation asset workflows",
-        "usage": "npx opendevbrowser product-video run (--product-url <url> | --product-name <name>) [--provider-hint <provider>] [--include-screenshots[=<bool>]] [--include-all-images[=<bool>]] [--include-copy[=<bool>]] [--timeout-ms <ms>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>] [--output-dir <path>] [--ttl-hours <n>]",
+        "usage": "npx opendevbrowser product-video run (--product-url <url> | --product-name <name>) [--provider-hint <provider>] [--include-screenshots[=<bool>]] [--include-all-images[=<bool>]] [--include-copy[=<bool>]] [--timeout-ms <ms>] [--browser-mode <mode>] [--profile <name>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>] [--output-dir <path>] [--ttl-hours <n>]",
         "flags": [
           "--product-url",
           "--product-name",
@@ -579,6 +605,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--include-copy",
           "--timeout-ms",
           "--browser-mode",
+          "--profile",
           "--use-cookies",
           "--challenge-automation-mode",
           "--cookie-policy-override",
@@ -600,7 +627,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       {
         "name": "inspiredesign",
         "description": "Run inspiredesign workflows and visual reference harvests",
-        "usage": "npx opendevbrowser inspiredesign run --brief <text> [--url <url>]... [--capture-mode <mode>] [--include-prototype-guidance[=<bool>]] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>] | npx opendevbrowser inspiredesign harvest --brief <text> (--query <text> | --url <url>) [--provider <id>]... [--url <url>]... [--max-references <n>] [--visual-evidence <mode>] [--capture-mode <mode>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--browser-mode <mode>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
+        "usage": "npx opendevbrowser inspiredesign run --brief <text> [--url <url>]... [--capture-mode <mode>] [--include-prototype-guidance[=<bool>]] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--browser-mode <mode>] [--profile <name>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>] | npx opendevbrowser inspiredesign harvest --brief <text> (--query <text> | --url <url>) [--provider <id>]... [--url <url>]... [--max-references <n>] [--visual-evidence <mode>] [--capture-mode <mode>] [--mode <mode>] [--timeout-ms <ms>] [--output-dir <path>] [--ttl-hours <n>] [--browser-mode <mode>] [--profile <name>] [--use-cookies[=<bool>]] [--challenge-automation-mode <mode>] [--cookie-policy-override <policy>]",
         "flags": [
           "--brief",
           "--query",
@@ -615,6 +642,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "--output-dir",
           "--ttl-hours",
           "--browser-mode",
+          "--profile",
           "--use-cookies",
           "--challenge-automation-mode",
           "--cookie-policy-override",
@@ -623,8 +651,8 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "examples": [
           "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-format json",
           "npx opendevbrowser inspiredesign harvest --brief \"Synthesize a premium docs workspace\" --query \"best docs product landing pages\" --provider web/default --max-references 5 --visual-evidence required --browser-mode managed --output-format json",
-          "npx opendevbrowser inspiredesign harvest --brief \"Premium digital photography studio landing page\" --query \"Pinterest premium digital photography studio landing page cinematic parallax portfolio\" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json",
-          "npx opendevbrowser inspiredesign harvest --brief \"Fashion design studio landing page with atelier motion references\" --provider social/pinterest --url \"https://www.pinterest.com/pin/27654985208435505/\" --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json"
+          "npx opendevbrowser inspiredesign harvest --brief \"Premium digital photography studio landing page\" --query \"Pinterest premium digital photography studio landing page cinematic parallax portfolio\" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode managed --profile pinterest-design --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json",
+          "npx opendevbrowser inspiredesign harvest --brief \"Fashion design studio landing page with atelier motion references\" --provider social/pinterest --url \"https://www.pinterest.com/pin/27654985208435505/\" --max-references 5 --visual-evidence required --browser-mode managed --profile pinterest-design --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json"
         ],
         "notes": [
           "Routine workflow runs should omit --output-dir and inspect the returned artifact_path first; when --output-dir is omitted, persisted bundles use .opendevbrowser/<namespace>/<runId>. If a wrapper requires an explicit workflow root, use --output-dir .opendevbrowser so the runtime appends <namespace>/<runId>.",
@@ -642,7 +670,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
           "Do not proceed when nextStepGuidance.doNotProceedIf matches zero references, empty ranked references, missing required screenshot, screencast, or pin-media evidence, provider unavailability, or diagnostic-only captures.",
           "CLI completion text includes guidanceReadiness=<value> productSuccess=false artifactAuthority=<value> evidenceAuthority=<value> when guidance readiness exists but product readiness is false; product-ready runs can still emit readiness=<value>.",
           "Pinterest is modeled as a browser-native site recipe for social/pinterest, not as a default full social provider. Compatible Pinterest --url recovery can run with --provider social/pinterest even when --query is omitted; use one canonical /pin/{id}/ URL per harvest when validating design-ready pin media.",
-          "Extension-mode canonical Pinterest pin-media harvest opens the exact canonical pin in the extension before extracting persisted first-party bytes. This is the default product path for reliable image, GIF, and video pin media capture.",
+          "Canonical Pinterest pin-media harvest opens the exact canonical pin in the active managed or extension workflow session before extracting persisted first-party bytes. Extension /ops remains the best live-tab reuse path, and explicit CDP profiles remain a browser/session primitive lane until provider workflows expose an explicit-CDP transport selector.",
           "Harvest JSON is metadata-only: screenshots, motion evidence, and pin-media evidence are artifact files referenced by relative paths, hashes, viewport metadata, frame counts, dimensions, provenance, and warnings.",
           "ranked-references.json includes rejectedReferences for captured-but-rejected diagnostics such as interface_chrome_shell without promoting those captures into design references.",
           "Pinterest product readiness is pin-media-first: canonical pin URLs become product-ready only when first-party pin-media evidence is captured, persisted, manifest-backed, and free of blocking warnings. Snapshot and screencast artifacts can inform diagnostics or motion, but they do not satisfy required Pinterest pin-media readiness. The exact login_or_challenge_state and strict byte-backed interface_chrome_shell diagnostics are non-blocking only for trusted first-party manifest-backed pin-media bytes; broader login, challenge, captcha, search-shell, promoted, ad, blank, tiny, or chrome-only blockers still demote readiness unless query-discovered canonical pins also produce complete pin-media authority. Screenshot failure after pin-media success is a non-blocking caveat when pin-media authority is complete; pin-media-index.json remains Pinterest authority, media-analysis.json remains advisory, and motion-evidence.json remains browser replay authority.",
@@ -1773,7 +1801,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "--profile",
-        "kind": "boolean"
+        "kind": "value"
       },
       {
         "name": "--persist-profile",
@@ -1781,15 +1809,15 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "--chrome-path",
-        "kind": "boolean"
+        "kind": "value"
       },
       {
         "name": "--start-url",
-        "kind": "boolean"
+        "kind": "value"
       },
       {
         "name": "--flag",
-        "kind": "boolean"
+        "kind": "value"
       },
       {
         "name": "--session-id",
@@ -1809,7 +1837,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
       },
       {
         "name": "--cdp-port",
-        "kind": "boolean"
+        "kind": "value"
       },
       {
         "name": "--url",
@@ -2258,6 +2286,11 @@ export const PUBLIC_SURFACE_MANIFEST = {
       "--cookies",
       "--cookies-file",
       "--persist-profile",
+      "--profile",
+      "--cdp-port",
+      "--chrome-path",
+      "--start-url",
+      "--flag",
       "--expression",
       "--default-provider",
       "--command",
@@ -3047,7 +3080,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
     ]
   },
   "counts": {
-    "commandCount": 77,
+    "commandCount": 78,
     "toolCount": 70,
     "cliToolPairCount": 67
   }

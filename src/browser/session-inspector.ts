@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { ChallengeInspectPlan } from "../challenges";
 import type { RelayStatus } from "../relay/relay-server";
+import { redactText } from "../devtools/console-tracker";
 import type { BrowserResponseMeta, SessionInspectorHandle } from "./manager-types";
+import {
+  summarizeBrowserSessionCapabilities,
+  type BrowserSessionCapabilitySummary
+} from "./session-capabilities";
+import { buildSafeTargetUrlSummary } from "./cdp-target-ownership";
 import type {
   BrowserVerificationEnvelope,
   DesktopObservationEnvelope
@@ -9,6 +15,8 @@ import type {
 
 type SessionInspectorStatus = Awaited<ReturnType<SessionInspectorHandle["status"]>>;
 type SessionInspectorTargets = Awaited<ReturnType<SessionInspectorHandle["listTargets"]>>;
+type SessionInspectorTarget = SessionInspectorTargets["targets"][number];
+type SanitizedSessionInspectorTarget = Omit<SessionInspectorTarget, "url">;
 
 type TraceChannelSummary = {
   eventCount: number;
@@ -48,8 +56,9 @@ export type SessionInspectorResult = {
   targets: {
     activeTargetId: string | null;
     count: number;
-    items: SessionInspectorTargets["targets"];
+    items: SanitizedSessionInspectorTarget[];
   };
+  capabilities: BrowserSessionCapabilitySummary;
   console: ConsoleSummary;
   network: NetworkSummary;
   exception: ExceptionSummary;
@@ -96,7 +105,7 @@ export async function inspectSession(
 ): Promise<SessionInspectorResult> {
   const [session, targets, traceRaw] = await Promise.all([
     handle.status(options.sessionId),
-    handle.listTargets(options.sessionId, options.includeUrls ?? true),
+    handle.listTargets(options.sessionId, options.includeUrls === true),
     handle.debugTraceSnapshot(options.sessionId, {
       sinceConsoleSeq: options.sinceConsoleSeq,
       sinceNetworkSeq: options.sinceNetworkSeq,
@@ -114,6 +123,15 @@ export async function inspectSession(
   const traceException = summarizeException(readChannel(trace, "exception"));
   const blockerState = readBlockerState(traceMeta, session.meta);
   const relay = options.relayStatus ? summarizeRelay(options.relayStatus) : null;
+  const proofUrl = summarizeInspectorUrl(getString(tracePage.url) ?? session.url);
+  const sanitizedSession = sanitizeSessionStatus(session);
+  const capabilities = summarizeBrowserSessionCapabilities({
+    mode: session.mode,
+    diagnostics: session.diagnostics,
+    relay,
+    targets,
+    challengeAutomationMode: session.meta?.challengeOrchestration?.mode
+  });
   const healthState = deriveHealthState({
     mode: session.mode,
     blockerState,
@@ -126,13 +144,14 @@ export async function inspectSession(
   });
 
   return {
-    session,
+    session: sanitizedSession,
     relay,
     targets: {
       activeTargetId: targets.activeTargetId,
       count: targets.targets.length,
-      items: targets.targets
+      items: targets.targets.map(sanitizeInspectorTarget)
     },
+    capabilities,
     console: traceConsole,
     network: traceNetwork,
     exception: traceException,
@@ -141,7 +160,7 @@ export async function inspectSession(
       requestId: getString(trace.requestId) ?? options.requestId ?? null,
       generatedAt: getString(trace.generatedAt) ?? null,
       blockerState,
-      ...(getString(tracePage.url) || session.url ? { url: getString(tracePage.url) ?? session.url } : {}),
+      ...(proofUrl ? { url: proofUrl } : {}),
       ...(getString(tracePage.title) || session.title ? { title: getString(tracePage.title) ?? session.title } : {})
     },
     healthState,
@@ -191,13 +210,36 @@ export async function buildCorrelatedAuditBundle(args: {
     browserSessionId: args.browserSessionId,
     ...(typeof args.targetId !== "undefined" ? { targetId: args.targetId } : {}),
     observationId: args.observation.observationId,
-    requestId: sessionInspector.proofArtifact.requestId ?? requestId,
+    requestId: sessionInspector.proofArtifact.requestId,
     ...(args.challengePlan.challengeId ? { challengeId: args.challengePlan.challengeId } : {}),
     desktop: args.observation,
     review: args.review,
     sessionInspector,
     challengePlan: args.challengePlan
   };
+}
+
+function sanitizeInspectorTarget(target: SessionInspectorTarget): SanitizedSessionInspectorTarget {
+  const { url: rawUrl, ...safeTarget } = target;
+  const safeUrlSummary = target.safeUrlSummary ?? buildSafeTargetUrlSummary(rawUrl);
+  return {
+    ...safeTarget,
+    ...(safeUrlSummary ? { safeUrlSummary } : {})
+  };
+}
+
+function sanitizeSessionStatus(session: SessionInspectorStatus): SessionInspectorStatus {
+  if (typeof session.url !== "string") {
+    return session;
+  }
+  const sanitizedUrl = summarizeInspectorUrl(session.url);
+  const sanitized = { ...session };
+  if (sanitizedUrl) {
+    sanitized.url = sanitizedUrl;
+  } else {
+    delete sanitized.url;
+  }
+  return sanitized;
 }
 
 function readChannel(trace: Record<string, unknown>, channelName: "console" | "network" | "exception") {
@@ -224,14 +266,14 @@ function summarizeException(channel: {
         getString(record.message),
         getString(record.value)
       ].find((value) => typeof value === "string" && value.trim().length > 0);
-      const url = getString(record.url) ?? getString(record.sourceURL) ?? undefined;
+      const url = summarizeInspectorUrl(getString(record.url) ?? getString(record.sourceURL) ?? getString(record.sourceUrl));
       const line = getNumber(record.lineNumber) ?? getNumber(record.line) ?? undefined;
       const column = getNumber(record.columnNumber) ?? getNumber(record.column) ?? undefined;
       if (!message && !url && typeof line !== "number" && typeof column !== "number") {
         return null;
       }
       return {
-        message: message?.trim() ?? "Unhandled exception",
+        message: message ? sanitizeInspectorText(message.trim()) : "Unhandled exception",
         ...(url ? { url } : {}),
         ...(typeof line === "number" ? { line } : {}),
         ...(typeof column === "number" ? { column } : {})
@@ -262,7 +304,7 @@ function summarizeConsole(channel: {
       ].find((value) => typeof value === "string" && value.trim().length > 0);
       return {
         level: (getString(record.level) ?? getString(record.type) ?? "log").toLowerCase(),
-        message: message?.trim() ?? ""
+        message: message ? sanitizeInspectorText(message.trim()) : ""
       };
     })
     .filter((entry) => entry.message.length > 0);
@@ -292,8 +334,8 @@ function summarizeNetwork(channel: {
     return {
       status: getNumber(record.status) ?? undefined,
       method: getString(record.method) ?? undefined,
-      url: getString(record.url) ?? undefined,
-      error: getString(record.errorText) ?? getString(record.error) ?? undefined
+      url: summarizeInspectorUrl(getString(record.url)),
+      error: sanitizeOptionalInspectorText(getString(record.errorText) ?? getString(record.error))
     };
   });
 
@@ -394,6 +436,34 @@ function readBlockerState(
 ): "clear" | "active" | "resolving" {
   const raw = getString(traceMeta.blockerState) ?? sessionMeta?.blockerState ?? "clear";
   return raw === "active" || raw === "resolving" ? raw : "clear";
+}
+
+function summarizeInspectorUrl(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return `${parsed.protocol}//${parsed.host}/[redacted]`;
+    }
+    if (parsed.protocol === "about:") {
+      return trimmed === "about:blank" ? "about:blank" : "about:[redacted]";
+    }
+    return `${parsed.protocol}[redacted]`;
+  } catch {
+    return "[invalid-url]";
+  }
+}
+
+function sanitizeOptionalInspectorText(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? sanitizeInspectorText(trimmed) : undefined;
+}
+
+function sanitizeInspectorText(value: string): string {
+  return redactText(value).replace(/\b(?:https?:\/\/|file:\/\/|about:)[^\s"'<>]+/gi, (match) => (
+    summarizeInspectorUrl(match) ?? "[redacted-url]"
+  ));
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

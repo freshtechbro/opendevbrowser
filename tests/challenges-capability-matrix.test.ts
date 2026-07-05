@@ -60,6 +60,7 @@ const buildBundle = (
 });
 
 const buildGate = (allowedActions: ChallengePolicyGate["allowedActions"], overrides: Partial<ChallengePolicyGate> = {}): ChallengePolicyGate => ({
+  resolvedPolicy: { mode: "browser", source: "config" },
   allowedActions,
   forbiddenActions: [],
   handoffTriggers: [],
@@ -99,6 +100,7 @@ describe("challenge capability matrix", () => {
     );
 
     expect(matrix.canUseComputerUseBridge).toBe(false);
+    expect(matrix.browserAutomationAllowed).toBe(false);
     expect(matrix.helperEligibility).toEqual({
       allowed: false,
       reason: "Helper bridge is blocked by human boundary: secret_entry.",
@@ -187,6 +189,7 @@ describe("challenge capability matrix", () => {
     );
 
     expect(matrix.mustDefer).toBe(true);
+    expect(matrix.browserAutomationAllowed).toBe(false);
   });
 
   it("defers policy-blocked lanes and honors explicit helper eligibility overrides", () => {
@@ -208,11 +211,59 @@ describe("challenge capability matrix", () => {
 
     expect(matrix.canExploreClicks).toBe(true);
     expect(matrix.canUseComputerUseBridge).toBe(false);
+    expect(matrix.browserAutomationAllowed).toBe(false);
     expect(matrix.helperEligibility).toEqual({
       allowed: false,
       reason: "Helper bridge is blocked by human boundary: policy_blocked.",
       standDownReason: "helper_blocked_by_human_boundary"
     });
     expect(matrix.mustDefer).toBe(true);
+  });
+
+  it("reports challenge automation mode eligibility across off, browser, and browser_with_helper", () => {
+    const browserEvidence = buildBundle("[r1] button \"Continue\"");
+    const offMatrix = buildCapabilityMatrix(
+      browserEvidence,
+      baseInterpretation,
+      buildGate(["click_path"], {
+        resolvedPolicy: { mode: "off", source: "run", standDownReason: "challenge_automation_off" },
+        optionalComputerUseBridge: true
+      })
+    );
+    const browserMatrix = buildCapabilityMatrix(
+      browserEvidence,
+      baseInterpretation,
+      buildGate(["click_path"], {
+        resolvedPolicy: { mode: "browser", source: "run" },
+        optionalComputerUseBridge: true
+      })
+    );
+    const helperMatrix = buildCapabilityMatrix(
+      browserEvidence,
+      baseInterpretation,
+      buildGate(["click_path"], {
+        resolvedPolicy: { mode: "browser_with_helper", source: "run" },
+        optionalComputerUseBridge: true
+      })
+    );
+
+    expect(offMatrix).toMatchObject({
+      automationMode: "off",
+      browserAutomationEnabled: false,
+      browserAutomationAllowed: false,
+      helperAutomationEnabled: false
+    });
+    expect(browserMatrix).toMatchObject({
+      automationMode: "browser",
+      browserAutomationEnabled: true,
+      browserAutomationAllowed: true,
+      helperAutomationEnabled: false
+    });
+    expect(helperMatrix).toMatchObject({
+      automationMode: "browser_with_helper",
+      browserAutomationEnabled: true,
+      browserAutomationAllowed: true,
+      helperAutomationEnabled: true
+    });
   });
 });

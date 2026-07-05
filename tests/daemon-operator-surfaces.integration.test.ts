@@ -337,7 +337,7 @@ describe("daemon operator surfaces", () => {
       latest: [
         {
           message: "Unhandled ReferenceError",
-          url: "https://example.com/app.js",
+          url: "https://example.com/[redacted]",
           line: 17,
           column: 4
         }

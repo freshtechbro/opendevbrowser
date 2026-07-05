@@ -74,6 +74,10 @@ export const buildCapabilityMatrix = (
   }
 
   return {
+    automationMode: gate.resolvedPolicy.mode,
+    browserAutomationEnabled: gate.resolvedPolicy.mode !== "off",
+    browserAutomationAllowed: gate.resolvedPolicy.mode !== "off" && !mustYield && !mustDefer,
+    helperAutomationEnabled: gate.resolvedPolicy.mode === "browser_with_helper" && helperEligibility.allowed,
     canNavigateToAuth,
     canReuseExistingSession,
     canReuseCookies,

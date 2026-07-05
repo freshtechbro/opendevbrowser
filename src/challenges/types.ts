@@ -224,10 +224,14 @@ export type ChallengePolicyGate = {
   handoffTriggers: ChallengeHumanBoundary[];
   governedLanes: ChallengeGovernedLaneKind[];
   optionalComputerUseBridge: boolean;
-  helperEligibility: ChallengeAutomationHelperEligibility;
+  helperEligibility?: ChallengeAutomationHelperEligibility;
 };
 
 export type ChallengeCapabilityMatrix = {
+  automationMode?: ChallengeAutomationMode;
+  browserAutomationEnabled?: boolean;
+  browserAutomationAllowed?: boolean;
+  helperAutomationEnabled?: boolean;
   canNavigateToAuth: boolean;
   canReuseExistingSession: boolean;
   canReuseCookies: boolean;

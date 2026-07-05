@@ -12,7 +12,13 @@ import {
 import type { SiteRecipe } from "../src/guidance/types";
 import { runBrowserNativeDiscovery } from "../src/providers/browser-native-discovery";
 import { createProviderError } from "../src/providers/errors";
-import type { NormalizedRecord, ProviderFailureEntry, ProviderReasonCode } from "../src/providers/types";
+import { resolveProviderRuntimePolicy } from "../src/providers/runtime-policy";
+import type {
+  NormalizedRecord,
+  ProviderFailureEntry,
+  ProviderReasonCode,
+  ResolvedProviderRuntimePolicy
+} from "../src/providers/types";
 
 const makeSearchRecord = (overrides: Partial<NormalizedRecord> = {}): NormalizedRecord => ({
   id: "search",
@@ -28,7 +34,7 @@ const makeSearchRecord = (overrides: Partial<NormalizedRecord> = {}): Normalized
 });
 
 const makeFailure = (
-  reasonCode: "env_limited" | "auth_required" | "challenge_detected" | "policy_blocked" | "rate_limited" | "token_required" = "env_limited",
+  reasonCode: ProviderReasonCode = "env_limited",
   message = "blocked search shell"
 ): ProviderFailureEntry => ({
   provider: "social/pinterest",
@@ -41,7 +47,89 @@ const makeFailure = (
   })
 });
 
+const makeAuth = (
+  overrides: Partial<ResolvedProviderRuntimePolicy["auth"]> = {}
+): ResolvedProviderRuntimePolicy["auth"] => ({
+  googleAuthIntent: "none",
+  capability: "public",
+  proof: "none",
+  googleSensitiveRisk: "none",
+  recommendedMode: "managed_headless",
+  doNotProceedIf: [],
+  ...overrides
+});
+
 describe("Pinterest guidance recipe", () => {
+  it("covers defensive Pinterest discovery diagnostics through public discovery", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const hardFailure = await runBrowserNativeDiscovery({
+      recipe,
+      query: "premium photography studio landing page",
+      maxReferences: 3,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage: async () => ({
+        records: [],
+        failures: [makeFailure("challenge_detected", "Opaque challenge failure")]
+      })
+    });
+    expect(hardFailure.diagnostics.reason).toBe("challenge_detected");
+
+    let shellAttempts = 0;
+    const softSearchShell = await runBrowserNativeDiscovery({
+      recipe,
+      query: "premium photography studio landing page",
+      maxReferences: 3,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage: async () => {
+        shellAttempts += 1;
+        return {
+          records: [makeSearchRecord({
+            content: "Search results for studio Pin card When autocomplete results are available",
+            attributes: {
+              html: '<main aria-label="search results"><p>No rendered pins yet</p></main>'
+            }
+          })],
+          failures: [makeFailure("env_limited", "soft search shell")]
+        };
+      }
+    });
+    expect(shellAttempts).toBe(2);
+    expect(softSearchShell.diagnostics).toEqual(expect.objectContaining({
+      reason: "env_limited",
+      sourcePageQuality: "search_shell",
+      diagnosticBlockers: expect.arrayContaining(["search_shell_without_media_signals"])
+    }));
+
+    let plainAttempts = 0;
+    const noClassification = await runBrowserNativeDiscovery({
+      recipe,
+      query: "premium photography studio landing page",
+      maxReferences: 3,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage: async () => {
+        plainAttempts += 1;
+        return {
+          records: [makeSearchRecord()],
+          failures: []
+        };
+      }
+    });
+    expect(plainAttempts).toBe(1);
+    expect(noClassification.diagnostics).toEqual(expect.objectContaining({
+      reason: "no_reference_urls_extracted",
+      acceptedUrls: []
+    }));
+  });
+
   it("canonicalizes accepted Pinterest references to HTTPS", () => {
     expect(normalizePinterestReferenceUrl("http://www.pinterest.com/pin/61572719900827789/?tracking=1#section")).toBe(
       "https://www.pinterest.com/pin/61572719900827789/"
@@ -285,6 +373,400 @@ describe("Pinterest guidance recipe", () => {
     expect(result.diagnostics.siteRecipeId).toBe("social/pinterest");
   });
 
+  it("does not treat a requested managed profile as authenticated Pinterest proof", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const result = await runBrowserNativeDiscovery({
+      recipe,
+      query: "premium photography studio landing page",
+      maxReferences: 3,
+      browserMode: "managed",
+      useCookies: false,
+      cookiePolicy: "required",
+      auth: makeAuth({
+        capability: "public",
+        proof: "none",
+        recommendedMode: "managed_headed",
+        profileId: "pinterest-design",
+        profileMode: "managed"
+      })
+    });
+
+    expect(result.records).toEqual([]);
+    expect(result.failures[0]?.error.reasonCode).toBe("auth_required");
+    expect(result.diagnostics).toMatchObject({
+      attempted: false,
+      reason: "auth_required",
+      authCapability: "public",
+      authProof: "none"
+    });
+  });
+
+  it("accepts trusted non-extension profile capability for authenticated Pinterest discovery", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const authCases: Array<{
+      auth: ResolvedProviderRuntimePolicy["auth"];
+      browserMode: string;
+      useCookies?: boolean;
+    }> = [
+      {
+        browserMode: "managed",
+        auth: makeAuth({
+          capability: "profile_continuity",
+          proof: "profile_declared",
+          recommendedMode: "managed_headed",
+          profileId: "pinterest-design",
+          profileMode: "managed",
+          profileTrust: "trusted"
+        })
+      },
+      {
+        browserMode: "managed",
+        auth: makeAuth({
+          capability: "profile_continuity",
+          proof: "provider_verified",
+          recommendedMode: "managed_headed",
+          profileId: "pinterest-design",
+          profileMode: "managed",
+          profileTrust: "trusted"
+        })
+      },
+      {
+        browserMode: "cdpConnect",
+        auth: makeAuth({
+          capability: "explicit_cdp_profile",
+          proof: "profile_declared",
+          googleSensitiveRisk: "explicit_cdp_not_google_proof",
+          recommendedMode: "explicit_cdp_profile",
+          doNotProceedIf: ["google_user_owned_requires_extension_ops"],
+          profileId: "pinterest-cdp",
+          profileMode: "explicit_cdp",
+          profileTrust: "trusted"
+        })
+      },
+      {
+        browserMode: "cdpConnect",
+        auth: makeAuth({
+          capability: "explicit_cdp_profile",
+          proof: "provider_verified",
+          googleSensitiveRisk: "explicit_cdp_not_google_proof",
+          recommendedMode: "explicit_cdp_profile",
+          doNotProceedIf: ["google_user_owned_requires_extension_ops"],
+          profileId: "pinterest-cdp",
+          profileMode: "explicit_cdp",
+          profileTrust: "trusted"
+        })
+      },
+      {
+        browserMode: "extension",
+        useCookies: true,
+        auth: makeAuth({
+          capability: "cookie_continuity",
+          proof: "provider_verified",
+          googleSensitiveRisk: "cookies_not_google_proof",
+          recommendedMode: "extension",
+          doNotProceedIf: ["requires_provider_verified_login"]
+        })
+      },
+      {
+        browserMode: "extension",
+        auth: makeAuth({
+          capability: "live_extension_required",
+          proof: "live_extension",
+          recommendedMode: "extension"
+        })
+      },
+      {
+        browserMode: "extension",
+        auth: makeAuth({
+          capability: "live_extension_required",
+          proof: "provider_verified",
+          recommendedMode: "extension"
+        })
+      }
+    ];
+
+    for (const item of authCases) {
+      const fetchSearchPage = vi.fn(async () => ({
+        records: [makeSearchRecord({
+          content: '<a href="/pin/61572719900827789/">Trusted profile studio pin</a>'
+        })],
+        failures: []
+      }));
+
+      const result = await runBrowserNativeDiscovery({
+        recipe,
+        query: "premium photography studio landing page",
+        maxReferences: 3,
+        browserMode: item.browserMode,
+        useCookies: item.useCookies ?? false,
+        cookiePolicy: "required",
+        auth: item.auth,
+        fetchSearchPage
+      });
+
+      expect(fetchSearchPage).toHaveBeenCalledOnce();
+      expect(result.failures).toEqual([]);
+      expect(result.records.map((record) => record.url)).toEqual([
+        "https://www.pinterest.com/pin/61572719900827789/"
+      ]);
+      expect(result.diagnostics.reason).toBe("reference_urls_extracted");
+    }
+  });
+
+  it("blocks extension transport and mismatched explicit CDP profile proof without real auth evidence", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const blockedCases: Array<{
+      browserMode: string;
+      useCookies?: boolean;
+      auth?: ResolvedProviderRuntimePolicy["auth"];
+      expectedMode: string;
+    }> = [
+      {
+        browserMode: "managed",
+        expectedMode: "extension"
+      },
+      {
+        browserMode: "extension",
+        expectedMode: "extension",
+        auth: makeAuth({
+          capability: "live_extension_required",
+          proof: "none",
+          recommendedMode: "extension"
+        })
+      },
+      {
+        browserMode: "managed",
+        expectedMode: "explicit_cdp_profile",
+        auth: makeAuth({
+          capability: "explicit_cdp_profile",
+          proof: "profile_declared",
+          googleSensitiveRisk: "explicit_cdp_not_google_proof",
+          recommendedMode: "explicit_cdp_profile",
+          doNotProceedIf: ["google_user_owned_requires_extension_ops"],
+          profileId: "pinterest-cdp",
+          profileMode: "explicit_cdp",
+          profileTrust: "trusted"
+        })
+      },
+      {
+        browserMode: "managed",
+        expectedMode: "explicit_cdp_profile",
+        auth: makeAuth({
+          capability: "explicit_cdp_profile",
+          proof: "provider_verified",
+          googleSensitiveRisk: "explicit_cdp_not_google_proof",
+          recommendedMode: "explicit_cdp_profile",
+          doNotProceedIf: ["google_user_owned_requires_extension_ops"],
+          profileId: "pinterest-cdp",
+          profileMode: "explicit_cdp",
+          profileTrust: "trusted"
+        })
+      },
+      {
+        browserMode: "extension",
+        expectedMode: "extension",
+        auth: makeAuth({
+          capability: "cookie_continuity",
+          proof: "provider_verified",
+          googleSensitiveRisk: "cookies_not_google_proof",
+          recommendedMode: "extension",
+          doNotProceedIf: ["requires_provider_verified_login"]
+        })
+      },
+      {
+        browserMode: "managed",
+        expectedMode: "extension",
+        auth: makeAuth({
+          capability: "live_extension_required",
+          proof: "provider_verified",
+          recommendedMode: "extension"
+        })
+      },
+      {
+        browserMode: "managed",
+        expectedMode: "extension",
+        auth: makeAuth({
+          capability: "live_extension_required",
+          proof: "live_extension",
+          recommendedMode: "extension"
+        })
+      },
+      {
+        browserMode: "managed",
+        expectedMode: "managed_profile",
+        auth: makeAuth({
+          capability: "public",
+          proof: "provider_verified",
+          recommendedMode: "managed_headed"
+        })
+      }
+    ];
+
+    for (const item of blockedCases) {
+      const fetchSearchPage = vi.fn(async () => ({
+        records: [makeSearchRecord({
+          content: '<a href="/pin/61572719900827789/">Blocked studio pin</a>'
+        })],
+        failures: []
+      }));
+
+      const result = await runBrowserNativeDiscovery({
+        recipe,
+        query: "premium photography studio landing page",
+        maxReferences: 3,
+        browserMode: item.browserMode,
+        useCookies: item.useCookies ?? false,
+        cookiePolicy: "required",
+        ...(item.auth ? { auth: item.auth } : {}),
+        fetchSearchPage
+      });
+
+      expect(fetchSearchPage).not.toHaveBeenCalled();
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error.reasonCode).toBe("auth_required");
+      expect(result.diagnostics).toEqual(expect.objectContaining({
+        reason: "auth_required",
+        requiredBrowserMode: item.expectedMode,
+        ...(item.auth
+          ? {
+            authProof: item.auth.proof,
+            recommendedMode: item.auth.recommendedMode
+          }
+          : {})
+      }));
+    }
+  });
+
+  it("blocks requested managed profiles without trusted auth proof", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const auth = resolveProviderRuntimePolicy({
+      source: "social",
+      runtimePolicy: {
+        browserMode: "managed",
+        profile: "Pinterest Design",
+        profileMode: "managed"
+      }
+    }).auth;
+    const fetchSearchPage = vi.fn(async () => ({
+      records: [makeSearchRecord({
+        content: '<a href="/pin/61572719900827789/">Requested profile studio pin</a>'
+      })],
+      failures: []
+    }));
+
+    const result = await runBrowserNativeDiscovery({
+      recipe,
+      query: "authenticated Pinterest inspiration",
+      maxReferences: 1,
+      browserMode: "managed",
+      cookiePolicy: "required",
+      auth,
+      fetchSearchPage
+    });
+
+    expect(fetchSearchPage).not.toHaveBeenCalled();
+    expect(result.records).toEqual([]);
+    expect(result.failures[0]?.error.reasonCode).toBe("auth_required");
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      attempted: false,
+      reason: "auth_required",
+      authCapability: "public",
+      authProof: "none",
+      recommendedMode: "managed_headed",
+      doNotProceedIf: []
+    }));
+  });
+
+  it("rejects cookie-only and untrusted profile proofs for authenticated Pinterest discovery", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const rejectedAuthCases: Array<{
+      auth: ResolvedProviderRuntimePolicy["auth"];
+      expectedCapability: string;
+      expectedProof: string;
+      expectedRequiredMode: string;
+    }> = [
+      {
+        expectedCapability: "cookie_continuity",
+        expectedProof: "cookies_observable",
+        expectedRequiredMode: "managed_profile",
+        auth: makeAuth({
+          capability: "cookie_continuity",
+          proof: "cookies_observable",
+          googleSensitiveRisk: "cookies_not_google_proof",
+          recommendedMode: "managed_headed",
+          doNotProceedIf: ["requires_provider_verified_login"]
+        })
+      },
+      {
+        expectedCapability: "profile_continuity",
+        expectedProof: "profile_declared",
+        expectedRequiredMode: "managed_profile",
+        auth: makeAuth({
+          capability: "profile_continuity",
+          proof: "profile_declared",
+          recommendedMode: "managed_headed",
+          profileId: "pinterest-design",
+          profileMode: "managed"
+        })
+      },
+      {
+        expectedCapability: "live_extension_required",
+        expectedProof: "none",
+        expectedRequiredMode: "extension",
+        auth: makeAuth({
+          capability: "live_extension_required",
+          proof: "none",
+          recommendedMode: "extension"
+        })
+      }
+    ];
+
+    for (const item of rejectedAuthCases) {
+      const fetchSearchPage = vi.fn(async () => ({
+        records: [makeSearchRecord({
+          content: '<a href="/pin/61572719900827789/">Untrusted profile studio pin</a>'
+        })],
+        failures: []
+      }));
+
+      const result = await runBrowserNativeDiscovery({
+        recipe,
+        query: "premium photography studio landing page",
+        maxReferences: 3,
+        browserMode: "managed",
+        useCookies: item.auth.proof === "cookies_observable",
+        cookiePolicy: "required",
+        auth: item.auth,
+        fetchSearchPage
+      });
+
+      expect(fetchSearchPage).not.toHaveBeenCalled();
+      expect(result.records).toEqual([]);
+      expect(result.failures[0]?.error.reasonCode).toBe("auth_required");
+      expect(result.diagnostics).toEqual(expect.objectContaining({
+        reason: "auth_required",
+        requiredBrowserMode: item.expectedRequiredMode,
+        authCapability: item.expectedCapability,
+        authProof: item.expectedProof
+      }));
+    }
+  });
+
   it("does not require an authenticated browser session when cookies are preferred but not required", async () => {
     const recipe = resolveSiteRecipeForProvider("social/pinterest");
     expect(recipe).toBeDefined();
@@ -333,6 +815,44 @@ describe("Pinterest guidance recipe", () => {
       "https://www.pinterest.com/pin/61572719900827789/"
     ]);
     expect(result.diagnostics.reason).toBe("reference_urls_extracted");
+  });
+
+  it("reports explicit CDP profile as the required browser mode when auth proof is missing", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const result = await runBrowserNativeDiscovery({
+      recipe,
+      query: "authenticated Pinterest inspiration",
+      maxReferences: 1,
+      browserMode: "cdpConnect",
+      useCookies: false,
+      cookiePolicy: "required",
+      auth: makeAuth({
+        capability: "explicit_cdp_profile",
+        proof: "none",
+        recommendedMode: "explicit_cdp_profile",
+        profileTrust: "trusted",
+        doNotProceedIf: ["requires_provider_verified_login"]
+      })
+    });
+
+    expect(result.records).toEqual([]);
+    expect(result.failures[0]?.error.details).toEqual(expect.objectContaining({
+      requiredBrowserMode: "explicit_cdp_profile",
+      authCapability: "explicit_cdp_profile",
+      authProof: "none",
+      recommendedMode: "explicit_cdp_profile"
+    }));
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      reason: "auth_required",
+      requiredBrowserMode: "explicit_cdp_profile",
+      authCapability: "explicit_cdp_profile",
+      authProof: "none",
+      recommendedMode: "explicit_cdp_profile",
+      doNotProceedIf: ["requires_provider_verified_login"]
+    }));
   });
 
   it("reports no extracted references when browser-native discovery has no extractor", async () => {
@@ -595,6 +1115,56 @@ describe("Pinterest guidance recipe", () => {
     }));
   });
 
+  it("retries recoverable Pinterest login search shells before accepting rendered pins", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    let attempts = 0;
+    const result = await runBrowserNativeDiscovery({
+      recipe,
+      query: "premium photography studio landing page",
+      maxReferences: 2,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage: async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return {
+            records: [makeSearchRecord({
+              content: "Log in to continue Search results for studio Pin card",
+              attributes: {
+                html: '<main aria-label="search results"><p>Loading pins</p></main>'
+              }
+            })],
+            failures: []
+          };
+        }
+        return {
+          records: [makeSearchRecord({
+            content: "Search results for studio Pin card",
+            attributes: {
+              html: '<main aria-label="search results"><a href="/pin/61572719900827789/">Studio pin</a></main>'
+            }
+          })],
+          failures: []
+        };
+      }
+    });
+
+    expect(attempts).toBe(2);
+    expect(result.failures).toEqual([]);
+    expect(result.records.map((record) => record.url)).toEqual([
+      "https://www.pinterest.com/pin/61572719900827789/"
+    ]);
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      reason: "reference_urls_extracted",
+      sourcePageQuality: "search_shell",
+      acceptedUrlCount: 1
+    }));
+  });
+
   it("extracts concrete pins from media-grid pages without shell markers", async () => {
     const recipe = resolveSiteRecipeForProvider("social/pinterest");
     expect(recipe).toBeDefined();
@@ -678,6 +1248,83 @@ describe("Pinterest guidance recipe", () => {
         "https://uk.pinterest.com/pin/11188699075430754/",
         "https://www.pinterest.com/pin/27654985208435505/"
       ]
+    }));
+  });
+
+  it("rejects search-shell pin URLs without rendered link evidence", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    let attempts = 0;
+    const result = await runBrowserNativeDiscovery({
+      recipe,
+      query: "premium design agency studio landing page",
+      maxReferences: 3,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage: async () => {
+        attempts += 1;
+        return {
+          records: [makeSearchRecord({
+            title: "Pinterest",
+            content: "Search results for studio Pin card https://www.pinterest.com/pin/61572719900827789/",
+            attributes: {
+              html: '<main aria-label="search results"><p>Rendered shell without pin anchors</p></main>'
+            }
+          })],
+          failures: []
+        };
+      }
+    });
+
+    expect(attempts).toBe(2);
+    expect(result.records).toEqual([]);
+    expect(result.failures[0]?.error.reasonCode).toBe("env_limited");
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      reason: "env_limited",
+      sourcePageQuality: "search_shell",
+      acceptedUrlCount: 0,
+      diagnosticBlockers: expect.arrayContaining(["search_shell_without_rendered_pin_links"])
+    }));
+  });
+
+  it("preserves search-shell diagnostics when provider fetch returns soft failures", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    let attempts = 0;
+    const result = await runBrowserNativeDiscovery({
+      recipe,
+      query: "premium design agency studio landing page",
+      maxReferences: 3,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage: async () => {
+        attempts += 1;
+        return {
+          records: [makeSearchRecord({
+            title: "Pinterest search shell",
+            content: "Search results for studio When autocomplete results are available",
+            attributes: {
+              html: '<main aria-label="search results"><p>Rendered shell without pin anchors</p></main>'
+            }
+          })],
+          failures: [makeFailure("env_limited", "search shell returned no usable media")]
+        };
+      }
+    });
+
+    expect(attempts).toBe(2);
+    expect(result.records).toEqual([]);
+    expect(result.failures[0]?.error.reasonCode).toBe("env_limited");
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      reason: "env_limited",
+      sourcePageQuality: "search_shell",
+      diagnosticBlockers: expect.arrayContaining(["search_shell_without_media_signals"])
     }));
   });
 
@@ -1604,6 +2251,38 @@ describe("Pinterest guidance recipe", () => {
     }));
   });
 
+  it("rejects non-pin rendered links from search-shell recovery", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+
+    const result = await runBrowserNativeDiscovery({
+      recipe,
+      query: "premium photography studio landing page",
+      maxReferences: 3,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage: async () => ({
+        records: [makeSearchRecord({
+          title: "Pinterest search shell",
+          content: "When autocomplete results are available use up and down arrows to review Search results for studio",
+          attributes: {
+            html: '<main aria-label="search results"><a href="/studio/editorial/">Board shell</a></main>'
+          }
+        })],
+        failures: []
+      })
+    });
+
+    expect(result.records).toEqual([]);
+    expect(result.failures[0]?.error.reasonCode).toBe("env_limited");
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      sourcePageQuality: "search_shell",
+      diagnosticBlockers: expect.arrayContaining(["search_shell_without_rendered_pin_links"])
+    }));
+  });
+
   it("does not promote rendered pin links from records without source-page context", async () => {
     const recipe = resolveSiteRecipeForProvider("social/pinterest");
     expect(recipe).toBeDefined();
@@ -2224,6 +2903,52 @@ describe("Pinterest guidance recipe", () => {
     expect(result.diagnostics).toEqual(expect.objectContaining({
       reason: "token_required",
       fetchedRecordCount: 1
+    }));
+  });
+
+  it("keeps unclassified search-shell failures diagnostic with source classification details", async () => {
+    const recipe = resolveSiteRecipeForProvider("social/pinterest");
+    expect(recipe).toBeDefined();
+    if (!recipe) return;
+    const unclassifiedFailure: ProviderFailureEntry = {
+      provider: "social/pinterest",
+      source: "social",
+      error: {
+        code: "unavailable",
+        message: "Search shell returned no usable references.",
+        retryable: true,
+        provider: "social/pinterest",
+        source: "social"
+      }
+    };
+
+    const result = await runBrowserNativeDiscovery({
+      recipe,
+      query: "cinematic photography studio",
+      maxReferences: 1,
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicy: "required",
+      fetchSearchPage: async () => ({
+        records: [makeSearchRecord({
+          title: "Pinterest search shell",
+          content: "When autocomplete results are available use up and down arrows to review and enter to select.",
+          attributes: {
+            links: []
+          }
+        })],
+        failures: [unclassifiedFailure]
+      })
+    });
+
+    expect(result.records).toEqual([]);
+    expect(result.failures).toEqual([unclassifiedFailure]);
+    expect(result.diagnostics).toEqual(expect.objectContaining({
+      reason: "env_limited",
+      sourcePageQuality: "search_shell",
+      diagnosticBlockers: expect.arrayContaining([
+        "search_shell_without_media_signals"
+      ])
     }));
   });
 

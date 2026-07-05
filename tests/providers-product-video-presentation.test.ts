@@ -500,6 +500,44 @@ describe("product-video-presentation", () => {
     expect(publicText).toContain("A new type of side grip that features quiet control.");
   });
 
+  it("rejects marketplace taxonomy and malformed prose fragments before public promotion", () => {
+    const presentation = buildProductVideoPresentation(cleanInput({
+      metadata: {
+        specs: {
+          type: ["& Touchpads", "of applications"],
+          maximum_dpi: "1600",
+          connectivity: "Wireless",
+          features: ["Keyboard & Mouse Bundles"]
+        }
+      },
+      sourceRecord: productRecord({ content: "" })
+    }));
+    const publicText = generatedCopyAndFeatures(presentation);
+    const promotedValues = presentation.promotedClaims.map((claim) => claim.specValue).join("\n");
+
+    expect(presentation.presentationReadiness.status).toBe("partial");
+    expect(presentation.presentationReadiness.reasonCodes).toEqual(expect.arrayContaining([
+      "site_chrome_rejected",
+      "raw_fragment_rejected",
+      "insufficient_clean_feature_evidence"
+    ]));
+    expect(promotedValues).not.toMatch(/& Touchpads|Keyboard & Mouse Bundles|of applications/i);
+    expect(publicText).not.toMatch(/& Touchpads|Keyboard & Mouse Bundles|of applications design/i);
+  });
+
+  it("counts exact marketplace taxonomy and malformed prose public leaks", () => {
+    expect(countPublicProductVideoTextViolations([
+      "& Touchpads",
+      "Keyboard & Mouse Bundles",
+      "of applications design gives the product a clear presentation category."
+    ])).toEqual({
+      marketplace: 0,
+      siteChrome: 1,
+      unsupported: 0,
+      rawFragment: 2
+    });
+  });
+
   it("rejects site navigation and catalog chrome before public feature promotion", () => {
     const presentation = buildProductVideoPresentation(cleanInput({
       provider: "web/default",

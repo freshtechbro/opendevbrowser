@@ -1,11 +1,26 @@
 import { randomUUID } from "crypto";
 import type { Page } from "playwright-core";
+import {
+  buildSafeTargetUrlSummary,
+  type TargetLifecycleState,
+  type TargetOwnershipMetadata,
+  type TargetOwnershipSource,
+  type TargetPopupKind,
+  type TargetSafeUrlSummary
+} from "./cdp-target-ownership";
 
 export type TargetInfo = {
   targetId: string;
   title?: string;
   url?: string;
   type: "page";
+  cdpTargetId?: string;
+  openerCdpTargetId?: string;
+  openerTargetId?: string;
+  lifecycleState?: TargetLifecycleState;
+  popupKind?: TargetPopupKind;
+  ownershipSource?: TargetOwnershipSource;
+  safeUrlSummary?: TargetSafeUrlSummary;
 };
 
 export type NamedTargetInfo = {
@@ -15,15 +30,24 @@ export type NamedTargetInfo = {
 
 const TARGET_INFO_TIMEOUT_MS = 2000;
 
+export type TargetSyncOptions = {
+  newTargetMetadata?: TargetOwnershipMetadata;
+  newTargetMetadataForPage?: (page: Page) => TargetOwnershipMetadata | undefined;
+};
+
 export class TargetManager {
   private targets = new Map<string, Page>();
   private activeTargetId: string | null = null;
   private nameToTarget = new Map<string, string>();
   private targetToName = new Map<string, string>();
+  private targetMetadata = new Map<string, TargetOwnershipMetadata>();
 
-  registerPage(page: Page, name?: string): string {
+  registerPage(page: Page, name?: string, metadata?: TargetOwnershipMetadata): string {
     const targetId = randomUUID();
     this.targets.set(targetId, page);
+    if (metadata) {
+      this.targetMetadata.set(targetId, metadata);
+    }
     if (!this.activeTargetId) {
       this.activeTargetId = targetId;
     }
@@ -37,6 +61,29 @@ export class TargetManager {
     for (const page of pages) {
       this.registerPage(page);
     }
+  }
+
+  setTargetMetadata(targetId: string, metadata: TargetOwnershipMetadata): void {
+    if (!this.targets.has(targetId)) {
+      throw new Error(`Unknown targetId: ${targetId}`);
+    }
+    this.targetMetadata.set(targetId, metadata);
+  }
+
+  mergeTargetMetadata(targetId: string, metadata: Partial<TargetOwnershipMetadata>): void {
+    if (!this.targets.has(targetId)) {
+      throw new Error(`Unknown targetId: ${targetId}`);
+    }
+    const current = this.targetMetadata.get(targetId);
+    this.targetMetadata.set(targetId, {
+      ownershipSource: current?.ownershipSource ?? metadata.ownershipSource ?? "manual",
+      ...current,
+      ...metadata
+    });
+  }
+
+  getTargetMetadata(targetId: string): TargetOwnershipMetadata | null {
+    return this.targetMetadata.get(targetId) ?? null;
   }
 
   setName(targetId: string, name: string): void {
@@ -121,6 +168,11 @@ export class TargetManager {
         continue;
       }
       this.targets.delete(existingTargetId);
+      const existingMetadata = this.targetMetadata.get(existingTargetId) ?? null;
+      this.targetMetadata.delete(existingTargetId);
+      if (existingMetadata) {
+        this.targetMetadata.set(targetId, existingMetadata);
+      }
       const existingName = this.targetToName.get(existingTargetId) ?? null;
       if (existingName) {
         this.nameToTarget.delete(existingName);
@@ -144,11 +196,13 @@ export class TargetManager {
   async listTargets(includeUrls = false): Promise<TargetInfo[]> {
     const entries = Array.from(this.targets.entries());
     return Promise.all(entries.map(async ([targetId, page]) => {
+      const metadata = this.targetMetadata.get(targetId) ?? null;
       const info: TargetInfo = {
         targetId,
         title: undefined,
         url: undefined,
-        type: "page"
+        type: "page",
+        ...formatTargetMetadata(metadata, includeUrls)
       };
 
       try {
@@ -163,6 +217,7 @@ export class TargetManager {
         try {
           if (!page.isClosed()) {
             info.url = await readWithTimeout(async () => page.url());
+            info.safeUrlSummary = metadata?.safeUrlSummary ?? buildSafeTargetUrlSummary(info.url);
           }
         } catch {
           info.url = undefined;
@@ -182,6 +237,7 @@ export class TargetManager {
       closeError = error;
     } finally {
       this.targets.delete(targetId);
+      this.targetMetadata.delete(targetId);
       const name = this.targetToName.get(targetId);
       if (name) {
         this.nameToTarget.delete(name);
@@ -206,12 +262,13 @@ export class TargetManager {
     }));
   }
 
-  syncPages(pages: Page[]): void {
+  syncPages(pages: Page[], options: TargetSyncOptions = {}): void {
     const current = new Set(pages);
 
     for (const [targetId, page] of this.targets.entries()) {
       if (page.isClosed() || !current.has(page)) {
         this.targets.delete(targetId);
+        this.targetMetadata.delete(targetId);
         const name = this.targetToName.get(targetId);
         if (name) {
           this.nameToTarget.delete(name);
@@ -229,7 +286,8 @@ export class TargetManager {
         }
       }
       if (!exists) {
-        this.registerPage(page);
+        const metadata = options.newTargetMetadataForPage?.(page) ?? options.newTargetMetadata;
+        this.registerPage(page, undefined, metadata);
       }
     }
 
@@ -237,6 +295,21 @@ export class TargetManager {
       this.activeTargetId = this.targets.keys().next().value ?? null;
     }
   }
+}
+
+function formatTargetMetadata(metadata: TargetOwnershipMetadata | null, includeUrlSummaries: boolean): Partial<TargetInfo> {
+  if (!metadata) {
+    return {};
+  }
+  return {
+    ...(metadata.cdpTargetId ? { cdpTargetId: metadata.cdpTargetId } : {}),
+    ...(metadata.openerCdpTargetId ? { openerCdpTargetId: metadata.openerCdpTargetId } : {}),
+    ...(metadata.openerTargetId ? { openerTargetId: metadata.openerTargetId } : {}),
+    ...(metadata.lifecycleState ? { lifecycleState: metadata.lifecycleState } : {}),
+    ...(metadata.popupKind ? { popupKind: metadata.popupKind } : {}),
+    ownershipSource: metadata.ownershipSource,
+    ...(includeUrlSummaries && metadata.safeUrlSummary ? { safeUrlSummary: metadata.safeUrlSummary } : {})
+  };
 }
 
 const readWithTimeout = async <T>(reader: () => Promise<T>, timeoutMs: number = TARGET_INFO_TIMEOUT_MS): Promise<T | undefined> => {

@@ -11,7 +11,7 @@ describe("docs-drift-check", () => {
   it("loads source surface counts", async () => {
     const { getSurfaceCounts } = await loadDocsDriftModule();
     const counts = getSurfaceCounts();
-    expect(counts.commandCount).toBe(77);
+    expect(counts.commandCount).toBe(78);
     expect(counts.toolCount).toBe(70);
     expect(counts.cliToolPairCount).toBe(67);
     expect(counts.opsCommandCount).toBeGreaterThan(0);
@@ -26,6 +26,8 @@ describe("docs-drift-check", () => {
     for (const id of [
       "doc.readme.command_count_matches_source",
       "doc.readme.tool_count_matches_source",
+      "doc.readme.session_connection_category_includes_cdp_profile",
+      "doc.cli.cli_only_surface_includes_cdp_profile",
       "doc.cli.inspiredesign_workflow_documented",
       "doc.workflow_surface_map.inspiredesign_documented",
       "doc.cli.no_stale_help_inventory_counts",
@@ -72,6 +74,7 @@ describe("docs-drift-check", () => {
       "skill.motion_design.cross_links_and_evidence_documented",
       "skill.command_channel_reference.canvas_and_annotation_markers_documented",
       "skill.command_channel_reference.surface_counts_match_source",
+      "skill.command_channel_reference.cli_inventory_matches_source",
       "skill.parity_gates.replay_and_desktop_observation_documented",
       "skill.design_agent.canvas_validation_markers_documented",
       "skill.surface_audit_checklist.counts_match_source",

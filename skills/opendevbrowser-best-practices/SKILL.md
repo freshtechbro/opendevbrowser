@@ -148,8 +148,8 @@ Rules:
 ```bash
 npx opendevbrowser inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --mode json --output-format json
 npx opendevbrowser inspiredesign harvest --brief "Design a premium docs workspace" --query "best docs product landing pages" --provider web/default --max-references 5 --visual-evidence required --browser-mode managed --mode path --output-format json
-npx opendevbrowser inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
-npx opendevbrowser inspiredesign harvest --brief "Premium digital photography studio landing page" --provider social/pinterest --url "https://www.pinterest.com/pin/<pin-id>/" --max-references 1 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
+npx opendevbrowser inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode managed --profile pinterest-design --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
+npx opendevbrowser inspiredesign harvest --brief "Premium digital photography studio landing page" --provider social/pinterest --url "https://www.pinterest.com/pin/<pin-id>/" --max-references 1 --visual-evidence required --browser-mode managed --profile pinterest-design --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
 ```
 
 Rules:
@@ -157,10 +157,10 @@ Rules:
 - use repeated `--url` flags instead of packed URL strings
 - provide `--query` or at least one `--url` for `inspiredesign harvest`; use `--query` when provider discovery is part of the task
 - use `inspiredesign harvest` when visual reference discovery, screenshot PNG artifacts, ranked references, metadata-only visual JSON, deterministic `media-analysis.json`, `meta-prompt.md`, or motion-design follow-through is required
-- treat `social/pinterest` as a browser-native site recipe, not a default full social provider; use extension mode, cookies, and `--cookie-policy required` for logged-in Pinterest search
+- treat `social/pinterest` as a browser-native site recipe, not a default full social provider; for non-Google logged-in Pinterest search, prefer a dedicated managed headed profile with `--profile <name>`, cookies, and `--cookie-policy required`; reserve extension `/ops` for live active-tab reuse and user-owned Google OAuth continuity; use registry-backed explicit CDP profiles through `cdp-profile start` plus `connect --profile` for browser/session primitives until provider workflows expose an explicit-CDP transport selector
 - for multi-pin Pinterest design harvests, run query discovery with `--query ... --provider social/pinterest` and trust the broad-query harvest only when query-discovered canonical `https://www.pinterest.com/pin/<id>/` URLs become ranked references with manifest-backed first-party pin-media bytes in the same bundle; omitted `--output-dir` runs return `artifact_path`, so inspect that path before assuming `.opendevbrowser/inspiredesign/<runId>`; if the query bundle remains diagnostic-only, read `meta.discovery.acceptedUrls` and `discovery-diagnostics.json`, keep only canonical pin URLs, then use one canonical recovery harvest per selected pin with omitted `--output-dir`
 - `discovery-diagnostics.json` records accepted and rejected URL counts, blocker diagnostics, and recovery actions; login/challenge and search-shell diagnostics are recovery paths, not product-ready evidence
-- canonical Pinterest pin harvests and recovery paths in extension mode use `captureMode=off` and open the exact canonical pin in the extension before byte-backed pin-media extraction, which is required for reliable GIF and video pin capture in live sessions
+- canonical Pinterest pin harvests and recovery paths use `captureMode=off` and open the exact canonical pin in the active managed or extension workflow session before byte-backed pin-media extraction, which is required for reliable GIF and video pin capture in live sessions
 - trust multi-pin Pinterest harvest outputs only when top-level `ready=true`, `productSuccess=true`, `artifactAuthority=product_ready`, `evidenceAuthority=pin_media_ready`, `ranked-references.json` is non-empty, and `pin-media-index.json` proves pin-media-first manifest-backed authority for the selected pin; `snapshot_ready` and `motion_ready` are not substitutes for canonical pin-media readiness, screenshot failure after pin-media success is a non-blocking caveat when pin-media authority is complete, `media-analysis.json` remains advisory, and `motion-evidence.json` remains browser replay authority
 - treat `media-analysis.json` as a deterministic design-fact surface from trusted saved pin media, not as readiness authority; `pin-media-index.json` remains the only pin-media readiness and provenance authority
 - use `media-analysis.json` for palette, tone, layout, OCR-free typography structure, text-region layout, sampled saved-media motion facts, `motionSignature`, limitations, and non-goals; do not claim readable text extraction, exact copy, font families, OCR, model vision, Tesseract, OpenCV, Sharp, browser canvas analysis, browser replay evidence, interaction choreography, new dependencies, or raw `mediaAnalysis` in `canvas-plan.request.json`
@@ -285,10 +285,11 @@ opendevbrowser_screencast_stop sessionId="<session-id>" screencastId="<screencas
 
 Goal: validate authenticated read/search capability without posting.
 
-1. Connect and verify extension readiness with JSON status: `data.fingerprintCurrent === true`, `data.relay.extensionConnected === true`, and `data.relay.extensionHandshakeComplete === true`.
-2. Navigate/search target social surface.
-3. Capture `debug-trace-snapshot` and `network-poll` evidence.
-4. Record blocker/auth status only (no write action).
+1. Choose the least-privileged session mode that matches the auth need. For non-Google social validation, prefer a dedicated managed headed profile or registry-backed explicit CDP profile; require `data.fingerprintCurrent === true` from JSON daemon status before running.
+2. Require extension readiness (`data.relay.extensionConnected === true` and `data.relay.extensionHandshakeComplete === true`) only when the workflow explicitly uses extension `/ops`, needs live active-tab reuse, or depends on user-owned Google OAuth continuity.
+3. Navigate/search target social surface.
+4. Capture `debug-trace-snapshot` and `network-poll` evidence.
+5. Record blocker/auth status only (no write action), and do not treat copied cookies, raw `--profile`, or raw CDP attach as login proof.
 
 ## Workflow Router Script
 
@@ -339,7 +340,7 @@ node scripts/live-regression-direct.mjs --out artifacts/live-regression-direct.j
 ```
 
 Surface inventory source of truth:
-- `docs/SURFACE_REFERENCE.md` (77 CLI commands, 70 tools, 59 `/ops` commands, 41 `/canvas` commands, 67 CLI-tool pairs, `/cdp` envelope contracts; mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`). These hardcoded counts are validator-covered and must be refreshed from generated public-surface truth whenever counts change.
+- `docs/SURFACE_REFERENCE.md` (78 CLI commands, 70 tools, 59 `/ops` commands, 41 `/canvas` commands, 67 CLI-tool pairs, `/cdp` envelope contracts; mirrored by `npx opendevbrowser --help` and `npx opendevbrowser help`). These hardcoded counts are validator-covered and must be refreshed from generated public-surface truth whenever counts change.
 - `artifacts/command-channel-reference.md` (skill-pack operational digest)
 - `artifacts/skill-runtime-surface-matrix.md` and `assets/templates/skill-runtime-pack-matrix.json` (canonical pack/runtime audit inventory)
 

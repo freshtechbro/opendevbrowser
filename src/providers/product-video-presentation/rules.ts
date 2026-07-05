@@ -173,6 +173,7 @@ const SITE_CHROME_EXACT_TEXTS = new Set([
   "gaming",
   "genius bar",
   "get applecare",
+  "keyboard & mouse bundles",
   "get help",
   "government",
   "headphones and speakers",
@@ -261,6 +262,10 @@ const LEADING_FEATURE_CONJUNCTION_RE = /^\band\s+/iu;
 const TRAILING_FEATURE_CONJUNCTION_RE = /\s+\band$/iu;
 const FEATURE_CLAUSE_START_RE = /^(?:allowing|built|designed|enabling|ensuring|featuring|it|making|providing|rejecting|that|these|they|this|those|while|which|with|without)\b/iu;
 const PROSE_CONTINUATION_VALUE_RE = /^(?:and|but|for|or|that|to|while|which|with|without)\b/iu;
+const MALFORMED_PUBLIC_FRAGMENT_PATTERNS = [
+  /^&\s*touchpads?\b/iu,
+  /^of\s+applications\b/iu
+] as const;
 
 const CLAIM_BUILDERS: Record<ProductVideoSupportedSpecKey, (value: string) => string> = {
   type: (value) => `${value} design gives the product a clear presentation category.`,
@@ -321,6 +326,7 @@ const isUnsupportedProductVideoIdentityText = (text: string): boolean => {
 
 export const isRawProductVideoSpecFragmentText = (text: string): boolean => {
   const normalized = normalizeProductVideoText(text);
+  if (MALFORMED_PUBLIC_FRAGMENT_PATTERNS.some((pattern) => pattern.test(normalized))) return true;
   if (BOOLEAN_SPEC_FRAGMENT_VALUE_RE.test(normalized)) return true;
   const boundaryLabel = leadingContentBoundaryLabel(normalized);
   if (boundaryLabel && (contentBoundaryHeading(normalized) || !SUPPORTED_CONTENT_BOUNDARY_LABELS.has(boundaryLabel))) {

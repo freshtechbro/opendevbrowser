@@ -4347,6 +4347,47 @@ describe("inspiredesign workflow", () => {
     expect(visualEvidence.visualEvidence[0]?.visual.path).toBeUndefined();
   });
 
+  it("records required visual evidence failure when deep capture throws before creating evidence", async () => {
+    const outputDir = makeOutputDir();
+    const runtime = toRuntime({
+      fetch: async (input: { url: string }) => makeAggregate({
+        records: [normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Visual reference",
+          content: "Cinematic hero reference"
+        })]
+      })
+    });
+
+    const output = await runInspiredesignWorkflow(runtime, {
+      brief: "Design a visual harvest landing page",
+      urls: ["https://example.com/visual-throw"],
+      outputDir,
+      mode: "path",
+      visualEvidence: "required"
+    }, {
+      captureReference: async () => {
+        throw new Error("Deep capture transport exploded");
+      }
+    });
+
+    const artifactPath = String(output.artifact_path);
+    const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as InspiredesignWorkflowEvidence;
+    const visualEvidence = JSON.parse(readFileSync(join(artifactPath, "visual-evidence.json"), "utf8")) as {
+      visualEvidence: Array<{ visual: { status: string; failure?: string; warnings: string[] } }>;
+    };
+
+    expect(evidence.references[0]).toEqual(expect.objectContaining({
+      captureStatus: "failed",
+      captureFailure: "Deep capture transport exploded"
+    }));
+    expect(visualEvidence.visualEvidence[0]?.visual).toEqual(expect.objectContaining({
+      status: "failed",
+      failure: "Deep capture transport exploded",
+      warnings: ["required_visual_evidence_missing"]
+    }));
+  });
+
   it("marks required visual evidence as failed when screenshot finalization fails", async () => {
     const outputDir = makeOutputDir();
     let plannedTempPath = "";
@@ -4740,6 +4781,52 @@ describe("inspiredesign workflow", () => {
       cookiePolicy: "required"
     }));
     expect(output.suggestedNextAction).toEqual(meta.nextStepGuidance?.primaryAction.summary);
+  });
+
+  it("allows managed-profile Pinterest discovery when the workflow owns profile provenance", async () => {
+    const fetch: ReferenceRetrievalPort["fetch"] = vi.fn(async (input) => makeAggregate({
+      records: [
+        normalizeRecord("social/pinterest", "social", {
+          url: input.url,
+          title: "Pinterest managed profile search",
+          content: '<main><a href="/pin/61572719900827789/">Managed profile studio pin</a></main>',
+          attributes: {
+            html: '<article data-grid-item="true"><a href="/pin/61572719900827789/">Studio pin</a></article>'
+          }
+        })
+      ]
+    }));
+
+    const output = await runInspiredesignWorkflow(toRuntime({ fetch }), {
+      brief: "Design a cinematic photography studio landing page",
+      harvest: true,
+      query: "premium photography studio landing page",
+      providers: ["social/pinterest"],
+      browserMode: "managed",
+      profile: "pinterest-design",
+      useCookies: true,
+      cookiePolicyOverride: "required",
+      visualEvidence: "off",
+      mode: "json"
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    expect(fetch).toHaveBeenCalledWith(
+      { url: "https://www.pinterest.com/search/pins/?q=premium+photography+studio+landing+page" },
+      expect.objectContaining({
+        runtimePolicy: expect.objectContaining({
+          browserMode: "managed",
+          profile: "pinterest-design",
+          profileMode: "managed",
+          useCookies: true,
+          cookiePolicyOverride: "required"
+        })
+      })
+    );
+    expect(meta.discovery?.acceptedUrls).toEqual(["https://www.pinterest.com/pin/61572719900827789/"]);
+    expect(meta.reasonCodeDistribution).not.toEqual(expect.objectContaining({
+      auth_required: expect.any(Number)
+    }));
   });
 
   it("attempts public Pinterest discovery when cookies are preferred and keeps usable grid URLs", async () => {
@@ -6694,6 +6781,12 @@ describe("inspiredesign workflow", () => {
       harvest: true,
       query: "premium photography studio landing page",
       providers: ["web/default", "social/pinterest"],
+      browserMode: "managed",
+      profile: "pinterest-design",
+      useCookies: true,
+      challengeAutomationMode: "browser",
+      cookiePolicyOverride: "required",
+      maxReferences: 1,
       visualEvidence: "off",
       mode: "json"
     });
@@ -6708,6 +6801,96 @@ describe("inspiredesign workflow", () => {
     }));
     expect(meta.nextStepGuidance?.commands[0]?.command).toContain("--provider web/default");
     expect(meta.nextStepGuidance?.commands[0]?.command).not.toContain("--cookie-policy required");
+  });
+
+  it("preserves mixed Pinterest discovery failures from standard providers", async () => {
+    const search = vi.fn(async () => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: "https://www.pinterest.com/ideas/editorial-portfolio/",
+          title: "Pinterest ideas shell",
+          content: "Non-canonical Pinterest ideas page"
+        })
+      ],
+      failures: [
+        {
+          provider: "web/default",
+          source: "web",
+          error: {
+            code: "unavailable",
+            message: "standard provider failed",
+            retryable: true,
+            reasonCode: "env_limited"
+          }
+        }
+      ]
+    }));
+    const fetch = vi.fn(async () => makeAggregate({
+      records: [
+        normalizeRecord("social/pinterest", "social", {
+          url: "https://www.pinterest.com/search/pins/?q=studio",
+          title: "Pinterest search shell",
+          content: "<main>No usable pins</main>"
+        })
+      ]
+    }));
+
+    const output = await runInspiredesignWorkflow(toRuntime({ fetch, search }), {
+      brief: "Design a cinematic photography studio landing page",
+      harvest: true,
+      query: "premium photography studio landing page",
+      providers: ["web/default", "social/pinterest"],
+      browserMode: "managed",
+      profile: "pinterest-design",
+      useCookies: true,
+      challengeAutomationMode: "browser",
+      cookiePolicyOverride: "required",
+      maxReferences: 1,
+      visualEvidence: "off",
+      mode: "json"
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    const discovery = meta.discovery as InspiredesignWorkflowMeta["discovery"] & {
+      failures?: ProviderFailureEntry[];
+      rejected?: Array<{ rawUrl?: string; title?: string; reason: string }>;
+    };
+    expect(discovery).toEqual(expect.objectContaining({
+      failure: "standard provider failed",
+      siteRecipeId: "social/pinterest"
+    }));
+    expect(discovery.failures?.[0]).toEqual(expect.objectContaining({
+      provider: "web/default",
+      source: "web"
+    }));
+    expect(discovery.rejected).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        reason: "invalid_url",
+        rawUrl: "https://www.pinterest.com/ideas/editorial-portfolio/"
+      })
+    ]));
+  });
+
+  it("reports non-site inspiredesign search exceptions as discovery diagnostics", async () => {
+    const search = vi.fn(async () => {
+      throw "plain search failure";
+    });
+
+    const output = await runInspiredesignWorkflow(toRuntime({ search }), {
+      brief: "Design a cinematic photography studio landing page",
+      harvest: true,
+      query: "premium photography studio landing page",
+      providers: ["web/default"],
+      visualEvidence: "off",
+      mode: "json"
+    });
+
+    const meta = output.meta as InspiredesignWorkflowMeta;
+    expect(meta.discovery).toEqual(expect.objectContaining({
+      requested: true,
+      searchAvailable: true,
+      failure: "Reference discovery failed."
+    }));
   });
 
   it("keeps Pinterest browser-native auth failures diagnostic when explicit references succeed", async () => {

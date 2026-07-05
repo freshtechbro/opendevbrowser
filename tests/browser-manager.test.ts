@@ -1,24 +1,38 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "events";
-import { mkdtemp, readFile, symlink, writeFile as writeFsFile } from "fs/promises";
+import { mkdir, mkdtemp, readFile, symlink, writeFile as writeFsFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Window } from "happy-dom";
 import { resolveConfig as parseConfig } from "../src/config";
 import { SCREENCAST_RETENTION_MS } from "../src/browser/manager-types";
+import {
+  createSessionProfileRegistry,
+  type SessionProfileRecord
+} from "../src/browser/session-profile-registry";
+import {
+  deleteExplicitCdpLaunchToken,
+  explicitCdpLaunchTokenMatches,
+  isExplicitCdpLaunchTokenProof,
+  recoverOrRejectExplicitCdpLease,
+  type ExplicitCdpLaunchTokenProof
+} from "../src/browser/explicit-cdp-profile-manager";
 
-const resolveCachePaths = vi.fn();
-const findChromeExecutable = vi.fn();
-const downloadChromeForTesting = vi.fn();
-const launchPersistentContext = vi.fn();
-const connectOverCDP = vi.fn();
-const loadSystemChromeCookies = vi.fn();
-const captureDom = vi.fn().mockResolvedValue({ html: "<div>ok</div>", styles: { color: "red" } });
+const resolveCachePaths = vi.hoisted(() => vi.fn());
+const findChromeExecutable = vi.hoisted(() => vi.fn());
+const downloadChromeForTesting = vi.hoisted(() => vi.fn());
+const launchPersistentContext = vi.hoisted(() => vi.fn());
+const connectOverCDP = vi.hoisted(() => vi.fn());
+const loadSystemChromeCookies = vi.hoisted(() => vi.fn());
+const captureDom = vi.hoisted(() => vi.fn().mockResolvedValue({ html: "<div>ok</div>", styles: { color: "red" } }));
 const rm = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const spawn = vi.hoisted(() => vi.fn());
+const execFileSync = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/cache/paths", () => ({ resolveCachePaths }));
 vi.mock("../src/cache/chrome-locator", () => ({ findChromeExecutable }));
 vi.mock("../src/cache/downloader", () => ({ downloadChromeForTesting }));
+vi.mock("node:child_process", () => ({ execFileSync, spawn }));
 vi.mock("fs/promises", async () => {
   const actual = await vi.importActual<typeof import("fs/promises")>("fs/promises");
   return { ...actual, rm };
@@ -57,6 +71,14 @@ function resolveConfig(overrides: Record<string, unknown>): ReturnType<typeof pa
 
 let originalFetch: typeof globalThis.fetch | undefined;
 let warnSpy: ReturnType<typeof vi.spyOn> | null = null;
+let latestCachePaths: {
+  root: string;
+  projectRoot: string;
+  profileDir: string;
+  chromeDir: string;
+  profileRegistryDir: string;
+};
+const CDP_PROFILE_LAUNCH_TOKEN_FILE = ".opendevbrowser-cdp-launch-token.json";
 const PINTEREST_TEST_MP4_BYTES = Buffer.from([
   0x00, 0x00, 0x00, 0x18,
   0x66, 0x74, 0x79, 0x70,
@@ -80,6 +102,21 @@ function createDeferred<T = void>(): { promise: Promise<T>; resolve: (value?: T 
     resolve = innerResolve;
   });
   return { promise, resolve };
+}
+
+async function writeExplicitCdpLaunchToken(proof: {
+  profileId: string;
+  launchTokenId: string;
+  port: number;
+  pid?: number;
+  createdAt?: string;
+}): Promise<void> {
+  await mkdir(latestCachePaths.profileDir, { recursive: true });
+  await writeFsFile(join(latestCachePaths.profileDir, CDP_PROFILE_LAUNCH_TOKEN_FILE), `${JSON.stringify({
+    version: 1,
+    createdAt: proof.createdAt ?? "2026-07-04T00:00:00.000Z",
+    ...proof
+  })}\n`, "utf8");
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs = 100): Promise<T> {
@@ -331,6 +368,7 @@ type BrowserLike = {
   wsEndpoint: () => string;
   contexts: () => BrowserContextLike[];
   newContext: () => Promise<BrowserContextLike>;
+  newBrowserCDPSession?: () => Promise<BrowserCdpSessionLike>;
   close: () => Promise<void>;
 };
 type BrowserContextLike = {
@@ -351,10 +389,23 @@ type BrowserContextLike = {
   browser: () => BrowserLike;
   close: () => Promise<void>;
 };
+type BrowserCdpSessionLike = {
+  send: (method: string, params?: Record<string, boolean>) => Promise<unknown>;
+  detach: () => Promise<void>;
+  on: (event: string, listener: (payload: unknown) => void) => unknown;
+  off?: (event: string, listener: (payload: unknown) => void) => unknown;
+  removeListener?: (event: string, listener: (payload: unknown) => void) => unknown;
+};
 
 const createBrowserBundle = (
   nodes: LegacyNode[],
-  options?: { initialPages?: number; contextsEmpty?: boolean; wsEndpoint?: string; blockMouseUp?: boolean }
+  options?: {
+    initialPages?: number;
+    contextsEmpty?: boolean;
+    wsEndpoint?: string;
+    blockMouseUp?: boolean;
+    browserCdpSession?: BrowserCdpSessionLike;
+  }
 ) => {
   const initialPages = options?.initialPages ?? 1;
   const { page, locator, cdpSession, setContext, mouseUpControl } = createPage(nodes, {
@@ -385,6 +436,7 @@ const createBrowserBundle = (
     wsEndpoint: () => options?.wsEndpoint ?? "ws://browser",
     contexts: () => options?.contextsEmpty ? [] : [context],
     newContext: vi.fn().mockResolvedValue(context),
+    ...(options?.browserCdpSession ? { newBrowserCDPSession: vi.fn().mockResolvedValue(options.browserCdpSession) } : {}),
     close: vi.fn().mockResolvedValue(undefined)
   };
 
@@ -494,21 +546,27 @@ function usePinterestMediaDom(
 
 beforeEach(async () => {
   const root = await mkdtemp(join(tmpdir(), "odb-browser-"));
-  resolveCachePaths.mockResolvedValue({
+  latestCachePaths = {
     root,
     projectRoot: join(root, "project"),
     profileDir: join(root, "profile"),
-    chromeDir: join(root, "chrome")
-  });
+    chromeDir: join(root, "chrome"),
+    profileRegistryDir: join(root, "profile-registry")
+  };
+  resolveCachePaths.mockResolvedValue(latestCachePaths);
   originalFetch = globalThis.fetch;
   warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
   rm.mockClear();
+  spawn.mockReset();
+  execFileSync.mockReset();
+  execFileSync.mockReturnValue(`/Applications/Google Chrome --user-data-dir=${latestCachePaths.profileDir} --remote-debugging-port=9333`);
   captureDom.mockClear();
   loadSystemChromeCookies.mockClear();
   loadSystemChromeCookies.mockResolvedValue({ cookies: [], source: null, warnings: [] });
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   if (originalFetch) {
     globalThis.fetch = originalFetch;
   }
@@ -576,6 +634,15 @@ describe("BrowserManager", () => {
     ]) {
       expect(helpers.buildProfileLockLaunchMessage(profileLockMessage, "/tmp/profile")).toContain("browser profile is locked");
     }
+    const sensitiveProfileDir = "/Users/privateuser/Library/Application Support/Google/Chrome/Default";
+    const sensitiveLockMessage = helpers.buildProfileLockLaunchMessage(
+      `browserType.launchPersistentContext: user data directory is already in use: ${sensitiveProfileDir}/SingletonLock`,
+      sensitiveProfileDir
+    );
+    expect(sensitiveLockMessage).toContain("Profile path hash:");
+    expect(sensitiveLockMessage).not.toContain("Profile directory:");
+    expect(sensitiveLockMessage).not.toContain(sensitiveProfileDir);
+    expect(sensitiveLockMessage).not.toContain("/Users/privateuser");
     expect(helpers.buildProfileLockLaunchMessage("network process crashed", "/tmp/profile")).toBeNull();
 
     expect(helpers.safePageUrl({ url: () => "https://example.com" }, "helper-test")).toBe("https://example.com");
@@ -841,7 +908,104 @@ describe("BrowserManager", () => {
     expect(listed.targets).toHaveLength(2);
     expect(listed.targets).toEqual(expect.arrayContaining([
       expect.objectContaining({ url: "https://example.com/root" }),
-      expect.objectContaining({ title: "Popup Window", url: "https://example.com/popup" })
+      expect.objectContaining({
+        title: "Popup Window",
+        url: "https://example.com/popup",
+        openerTargetId: initial.activeTargetId,
+        lifecycleState: "open",
+        popupKind: "popup",
+        ownershipSource: "action_sync",
+        safeUrlSummary: {
+          scheme: "https",
+          host: "example.com",
+          origin: "https://example.com"
+        }
+      })
+    ]));
+  });
+
+  it("records CDP Target event opener ownership in managed target listings", async () => {
+    const nodes = [
+      { ref: "r1", role: "link", name: "Open Popup Window", tag: "a", selector: "#open-popup" }
+    ];
+    const browserCdpEmitter = new EventEmitter();
+    const browserCdpSession = Object.assign(browserCdpEmitter, {
+      send: vi.fn(async () => ({})),
+      detach: vi.fn(async () => undefined)
+    });
+    const { context, page } = createBrowserBundle(nodes, { browserCdpSession });
+    const popup = createPage(nodes);
+    popup.setContext(context);
+    popup.page.url.mockReturnValue("https://accounts.google.com/o/oauth2/v2/auth");
+    popup.page.title.mockResolvedValue("Sign in to Google");
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    downloadChromeForTesting.mockResolvedValue({ executablePath: "/bin/chrome" });
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.launch({ profile: "default", startUrl: "https://example.com/root" });
+    const initial = await manager.listTargets(result.sessionId, true);
+    const rootTargetId = initial.activeTargetId;
+    expect(rootTargetId).toBeTruthy();
+
+    browserCdpEmitter.emit("Target.targetCreated", {
+      targetInfo: {
+        targetId: "cdp-root",
+        type: "page",
+        url: "https://example.com/root",
+        title: "Root"
+      }
+    });
+    context.pages().push(popup.page as never);
+    browserCdpEmitter.emit("Target.targetCreated", {
+      targetInfo: {
+        targetId: "cdp-popup",
+        openerId: "cdp-root",
+        type: "page",
+        url: "https://accounts.google.com/o/oauth2/v2/auth",
+        title: "Sign in to Google"
+      }
+    });
+
+    const defaultListed = await manager.listTargets(result.sessionId, false);
+    const defaultPopup = defaultListed.targets.find((target) => target.cdpTargetId === "cdp-popup");
+    expect(defaultPopup).toEqual(expect.objectContaining({
+      cdpTargetId: "cdp-popup",
+      openerCdpTargetId: "cdp-root",
+      openerTargetId: rootTargetId
+    }));
+    expect(defaultPopup?.url).toBeUndefined();
+    expect(defaultPopup?.safeUrlSummary).toBeUndefined();
+    expect(JSON.stringify(defaultListed)).not.toContain("accounts.google.com");
+
+    const listed = await manager.listTargets(result.sessionId, true);
+
+    expect(browserCdpSession.send).toHaveBeenCalledWith("Target.setDiscoverTargets", { discover: true });
+    expect(listed.targets).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        url: "https://example.com/root",
+        cdpTargetId: "cdp-root",
+        lifecycleState: "open",
+        ownershipSource: "cdp_target_event"
+      }),
+      expect.objectContaining({
+        title: "Sign in to Google",
+        url: "https://accounts.google.com/o/oauth2/v2/auth",
+        cdpTargetId: "cdp-popup",
+        openerCdpTargetId: "cdp-root",
+        openerTargetId: rootTargetId,
+        lifecycleState: "open",
+        popupKind: "oauth_or_account_chooser",
+        ownershipSource: "cdp_target_event",
+        safeUrlSummary: {
+          scheme: "https",
+          host: "accounts.google.com",
+          origin: "https://accounts.google.com"
+        }
+      })
     ]));
   });
 
@@ -913,9 +1077,14 @@ describe("BrowserManager", () => {
     expect(loadSystemChromeCookies).not.toHaveBeenCalled();
     expect(context.addCookies).not.toHaveBeenCalled();
     expect(result.warnings).toContain("System Chrome cookie bootstrap disabled for this run.");
-    expect(result.diagnostics?.authProvenance).toEqual({
+    expect(result.diagnostics?.authProvenance).toMatchObject({
       googleAuthIntent: "none",
       profileSource: "managed_profile",
+      profile: expect.objectContaining({
+        kind: "managed_persistent",
+        authCapability: "profile_continuity",
+        authProof: "profile_declared"
+      }),
       cookieBootstrap: {
         attempted: false,
         disabled: true,
@@ -924,6 +1093,101 @@ describe("BrowserManager", () => {
       }
     });
     expect(JSON.stringify(result.diagnostics?.authProvenance)).not.toContain("Chrome/Default");
+  });
+
+  it("reports managed persistent profile continuity without leaking raw profile paths", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.launch({
+      profile: "Pinterest Design",
+      disableSystemCookieBootstrap: true
+    });
+
+    expect(result.diagnostics?.authProvenance.profile).toMatchObject({
+      profileId: "pinterest-design",
+      kind: "managed_persistent",
+      scope: "opendevbrowser_owned",
+      persistent: true,
+      headless: false,
+      authCapability: "profile_continuity",
+      authProof: "profile_declared"
+    });
+    const provenanceJson = JSON.stringify(result.diagnostics?.authProvenance);
+    expect(provenanceJson).not.toContain("/tmp/");
+    expect(provenanceJson).not.toContain("profileDir");
+    expect(provenanceJson).not.toContain("Profile ");
+  });
+
+  it("reports temporary or headless managed profiles without human-login proof", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.launch({
+      profile: "default",
+      persistProfile: false,
+      headless: true,
+      disableSystemCookieBootstrap: true
+    });
+
+    expect(result.diagnostics?.authProvenance.profile).toMatchObject({
+      kind: "managed_temporary",
+      scope: "temporary",
+      persistent: false,
+      headless: true,
+      authCapability: "public",
+      authProof: "none"
+    });
+    const status = await manager.status(result.sessionId);
+    expect(status.diagnostics?.authProvenance.profile).toMatchObject({
+      kind: "managed_temporary",
+      authCapability: "public",
+      authProof: "none"
+    });
+  });
+
+  it("defaults headless managed launches to temporary profiles", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { context } = createBrowserBundle(nodes);
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    launchPersistentContext.mockResolvedValue(context);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({ persistProfile: true }));
+
+    const result = await manager.launch({
+      profile: "default",
+      headless: true,
+      disableSystemCookieBootstrap: true
+    });
+
+    expect(result.diagnostics?.authProvenance.profile).toMatchObject({
+      kind: "managed_temporary",
+      scope: "temporary",
+      persistent: false,
+      headless: true,
+      authCapability: "public",
+      authProof: "none"
+    });
   });
 
   it("sanitizes provider cookie import provenance before storing it on managed sessions", async () => {
@@ -1302,6 +1566,26 @@ describe("BrowserManager", () => {
     expect(wakeSpy).not.toHaveBeenCalled();
   });
 
+  it("keeps challenge automation suppressed until nested scopes exit", async () => {
+    type SuppressionHarness = {
+      withChallengeAutomationSuppressed<T>(sessionId: string, action: () => Promise<T>): Promise<T>;
+      isChallengeAutomationSuppressed(sessionId: string): boolean;
+    };
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const harness = manager as unknown as SuppressionHarness;
+
+    expect(harness.isChallengeAutomationSuppressed("missing-session")).toBe(false);
+    await harness.withChallengeAutomationSuppressed("missing-session", async () => {
+      expect(harness.isChallengeAutomationSuppressed("missing-session")).toBe(true);
+      await harness.withChallengeAutomationSuppressed("missing-session", async () => {
+        expect(harness.isChallengeAutomationSuppressed("missing-session")).toBe(true);
+      });
+      expect(harness.isChallengeAutomationSuppressed("missing-session")).toBe(true);
+    });
+    expect(harness.isChallengeAutomationSuppressed("missing-session")).toBe(false);
+  });
+
   it("downloads Chrome when missing", async () => {
     const nodes = [
       { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
@@ -1642,6 +1926,11 @@ describe("BrowserManager", () => {
 
     findChromeExecutable.mockResolvedValue("/bin/chrome");
     connectOverCDP.mockResolvedValue(browser);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((): true => true);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9333/devtools/browser/private-id" })
+    }) as never;
 
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
@@ -1668,6 +1957,17 @@ describe("BrowserManager", () => {
 
     findChromeExecutable.mockResolvedValue("/bin/chrome");
     connectOverCDP.mockResolvedValue(browser);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((): true => true);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9333/devtools/browser/private-id" })
+    }) as never;
+    await writeExplicitCdpLaunchToken({
+      profileId: "pinterest-design",
+      launchTokenId: "profile-start",
+      port: 9333,
+      pid: 12345
+    });
 
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
@@ -1684,6 +1984,12 @@ describe("BrowserManager", () => {
     expect(result.diagnostics?.authProvenance).toEqual({
       googleAuthIntent: "none",
       profileSource: "cdp_connected_profile",
+      profile: expect.objectContaining({
+        kind: "raw_cdp_unknown",
+        scope: "unknown",
+        authCapability: "public",
+        authProof: "none"
+      }),
       cookieBootstrap: {
         attempted: false,
         disabled: true,
@@ -1691,6 +1997,1255 @@ describe("BrowserManager", () => {
         rejectedCount: 0
       }
     });
+    expect(JSON.stringify(result.diagnostics?.authProvenance)).not.toContain("devtools/browser");
+  });
+
+  it("reports registry-backed explicit CDP profile continuity without treating raw endpoints as proof", async () => {
+    const nodes = [
+      { ref: "r1", role: "button", name: "OK", tag: "button", selector: "[data-odb-ref=\"r1\"]" }
+    ];
+    const { browser } = createBrowserBundle(nodes);
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      pathForHash: "/Users/test/Library/Application Support/Google/Chrome/Default",
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: 12345,
+        port: 9333,
+        launchTokenId: "profile-start",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    connectOverCDP.mockResolvedValue(browser);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((): true => true);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9333/devtools/browser/private-id" })
+    }) as never;
+    await writeExplicitCdpLaunchToken({
+      profileId: "pinterest-design",
+      launchTokenId: "profile-start",
+      port: 9333,
+      pid: 12345
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.connect({
+      profile: "pinterest-design",
+      disableSystemCookieBootstrap: true
+    });
+
+    expect(connectOverCDP).toHaveBeenCalledWith(
+      "ws://127.0.0.1:9333/devtools/browser/private-id"
+    );
+    expect(result.diagnostics?.authProvenance.profile).toMatchObject({
+      profileId: "pinterest-design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      }
+    });
+    const provenanceJson = JSON.stringify(result.diagnostics?.authProvenance);
+    expect(provenanceJson).not.toContain("/Users/");
+    expect(provenanceJson).not.toContain("devtools/browser/private-id");
+    killSpy.mockRestore();
+  });
+
+  it("rejects explicit CDP profile attach when launch token proof is missing or mismatched", async () => {
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: 12345,
+        port: 9333,
+        launchTokenId: "profile-start",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((): true => true);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9333/devtools/browser/private-id" })
+    }) as never;
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const connectCallsBefore = connectOverCDP.mock.calls.length;
+
+    await expect(manager.connect({
+      profile: "pinterest-design",
+      disableSystemCookieBootstrap: true
+    })).rejects.toThrow("launch token does not match the live lease");
+
+    await writeExplicitCdpLaunchToken({
+      profileId: "pinterest-design",
+      launchTokenId: "wrong-launch-token",
+      port: 9333,
+      pid: 12345
+    });
+    await expect(manager.connect({
+      profile: "pinterest-design",
+      disableSystemCookieBootstrap: true
+    })).rejects.toThrow("launch token does not match the live lease");
+
+    expect(connectOverCDP).toHaveBeenCalledTimes(connectCallsBefore);
+    killSpy.mockRestore();
+  });
+
+  it("rejects explicit CDP profile attach when live process ownership does not match", async () => {
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: 12345,
+        port: 9333,
+        launchTokenId: "profile-start",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((): true => true);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9333/devtools/browser/private-id" })
+    }) as never;
+    execFileSync.mockReturnValue("/usr/bin/python unrelated-server.py --port=9333");
+    await writeExplicitCdpLaunchToken({
+      profileId: "pinterest-design",
+      launchTokenId: "profile-start",
+      port: 9333,
+      pid: 12345
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const connectCallsBefore = connectOverCDP.mock.calls.length;
+
+    await expect(manager.connect({
+      profile: "pinterest-design",
+      disableSystemCookieBootstrap: true
+    })).rejects.toThrow("could not be verified as profile-owned");
+
+    expect(connectOverCDP).toHaveBeenCalledTimes(connectCallsBefore);
+    killSpy.mockRestore();
+  });
+
+  it("rejects explicit CDP profile attach when the live endpoint is unavailable", async () => {
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: 12345,
+        port: 9333,
+        launchTokenId: "profile-start",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((): true => true);
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false }) as never;
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const connectCallsBefore = connectOverCDP.mock.calls.length;
+
+    await expect(manager.connect({
+      profile: "pinterest-design",
+      disableSystemCookieBootstrap: true
+    })).rejects.toThrow("endpoint is not live");
+
+    expect(connectOverCDP).toHaveBeenCalledTimes(connectCallsBefore);
+    killSpy.mockRestore();
+  });
+
+  it("refuses reserved explicit CDP profile names before launch side effects", async () => {
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const chromeLookupCallsBefore = findChromeExecutable.mock.calls.length;
+    const spawnCallsBefore = spawn.mock.calls.length;
+
+    await expect(manager.startExplicitCdpProfile({
+      profile: "default",
+      port: 9333
+    })).rejects.toThrow("named non-default OpenDevBrowser profile");
+
+    expect(findChromeExecutable).toHaveBeenCalledTimes(chromeLookupCallsBefore);
+    expect(spawn).toHaveBeenCalledTimes(spawnCallsBefore);
+  });
+
+  it("rejects explicit CDP profile attach when /json/version omits the socket endpoint", async () => {
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: 12345,
+        port: 9333,
+        launchTokenId: "profile-start",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((): true => true);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({})
+    }) as never;
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const connectCallsBefore = connectOverCDP.mock.calls.length;
+
+    await expect(manager.connect({
+      profile: "pinterest-design",
+      disableSystemCookieBootstrap: true
+    })).rejects.toThrow("endpoint is not live");
+
+    expect(connectOverCDP).toHaveBeenCalledTimes(connectCallsBefore);
+    killSpy.mockRestore();
+  });
+
+  it("rejects explicit CDP profile attach when /json/version cannot be fetched", async () => {
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: 12345,
+        port: 9333,
+        launchTokenId: "profile-start",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((): true => true);
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("connection refused")) as never;
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+    const connectCallsBefore = connectOverCDP.mock.calls.length;
+
+    await expect(manager.connect({
+      profile: "pinterest-design",
+      disableSystemCookieBootstrap: true
+    })).rejects.toThrow("endpoint is not live");
+
+    expect(connectOverCDP).toHaveBeenCalledTimes(connectCallsBefore);
+    killSpy.mockRestore();
+  });
+
+  it("terminates OpenDevBrowser-owned CDP profile processes when endpoint startup times out", async () => {
+    const child = { pid: 4321, unref: vi.fn() };
+    spawn.mockReturnValue(child);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false }) as never;
+    let terminated = false;
+    let zeroProbeCount = 0;
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      if (pid !== child.pid) {
+        return true;
+      }
+      if (signal === "SIGTERM") {
+        terminated = true;
+        return true;
+      }
+      if (signal === 0) {
+        zeroProbeCount += 1;
+      }
+      if (signal === 0 && terminated && zeroProbeCount >= 3) {
+        const error = new Error("process is not running") as NodeJS.ErrnoException;
+        error.code = "ESRCH";
+        throw error;
+      }
+      return true;
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const startPromise = manager.startExplicitCdpProfile({
+      profile: "pinterest-design",
+      port: 9333,
+      readinessTimeoutMs: 1
+    });
+
+    await expect(startPromise).rejects.toThrow("Timed out waiting for explicit CDP profile");
+    expect(spawn).toHaveBeenCalledWith(
+      "/bin/chrome",
+      expect.arrayContaining([
+        `--user-data-dir=${latestCachePaths.profileDir}`,
+        "--remote-debugging-address=127.0.0.1",
+        "--remote-debugging-port=9333"
+      ]),
+      expect.objectContaining({ detached: true })
+    );
+    expect(killSpy).toHaveBeenCalledWith(child.pid, "SIGTERM");
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    expect(registry.read("pinterest-design")).toBeNull();
+    killSpy.mockRestore();
+  });
+
+  it("cleans failed explicit CDP profile starts when process probes error during termination", async () => {
+    const child = { pid: 4322, unref: vi.fn() };
+    spawn.mockReturnValue(child);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false }) as never;
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      if (pid === child.pid && signal === 0) {
+        const error = new Error("unexpected process probe failure") as NodeJS.ErrnoException;
+        error.code = "EINVAL";
+        throw error;
+      }
+      return true;
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.startExplicitCdpProfile({
+      profile: "pinterest-design",
+      port: 9333,
+      readinessTimeoutMs: 1
+    })).rejects.toThrow("Timed out waiting for explicit CDP profile");
+
+    expect(killSpy).not.toHaveBeenCalledWith(child.pid, "SIGTERM");
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    expect(registry.read("pinterest-design")).toBeNull();
+    killSpy.mockRestore();
+  });
+
+  it("cleans failed explicit CDP profile starts without terminating when Chrome reports no PID", async () => {
+    const child = { unref: vi.fn() };
+    spawn.mockReturnValue(child);
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false }) as never;
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((): true => true);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.startExplicitCdpProfile({
+      profile: "pinterest-design",
+      port: 9333,
+      readinessTimeoutMs: 1
+    })).rejects.toThrow("Timed out waiting for explicit CDP profile");
+
+    expect(killSpy).not.toHaveBeenCalledWith(expect.any(Number), "SIGTERM");
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    expect(registry.read("pinterest-design")).toBeNull();
+    killSpy.mockRestore();
+  });
+
+  it("starts explicit CDP profiles with downloaded Chrome fallback and sanitized status output", async () => {
+    const child = { unref: vi.fn() };
+    spawn.mockReturnValue(child);
+    findChromeExecutable.mockResolvedValue(null);
+    downloadChromeForTesting.mockResolvedValue({ executablePath: "/tmp/chrome-for-testing" });
+    let discoveredPort = 0;
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: false })
+      .mockImplementationOnce(async (input: Parameters<typeof fetch>[0]) => {
+        const match = String(input).match(/127\.0\.0\.1:(\d+)/);
+        discoveredPort = match ? Number(match[1]) : 0;
+        return {
+          ok: true,
+          json: async () => ({ webSocketDebuggerUrl: `ws://127.0.0.1:${discoveredPort}/devtools/browser/private-id` })
+        };
+      }) as never;
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({
+      flags: ["--disable-background-networking"]
+    }));
+
+    const result = await manager.startExplicitCdpProfile({
+      profile: "Pinterest Design"
+    });
+    const status = await manager.statusExplicitCdpProfile("Pinterest Design");
+    const rawRecord = await readFile(join(latestCachePaths.profileRegistryDir, "pinterest-design.json"), "utf8");
+
+    expect(downloadChromeForTesting).toHaveBeenCalledWith(latestCachePaths.chromeDir);
+    expect(spawn).toHaveBeenCalledWith(
+      "/tmp/chrome-for-testing",
+      expect.arrayContaining([
+        `--user-data-dir=${latestCachePaths.profileDir}`,
+        "--remote-debugging-address=127.0.0.1",
+        `--remote-debugging-port=${result.port}`,
+        "--disable-background-networking",
+        "about:blank"
+      ]),
+      expect.objectContaining({ detached: true, stdio: "ignore" })
+    );
+    expect(child.unref).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      port: discoveredPort,
+      warnings: ["System Chrome not found. Downloaded Chrome for Testing."],
+      profile: {
+        profileId: "pinterest-design",
+        endpoint: {
+          host: "127.0.0.1",
+          port: discoveredPort
+        },
+        authCapability: "explicit_cdp_profile",
+        authProof: "profile_declared"
+      }
+    });
+    expect(result).not.toHaveProperty("pid");
+    expect(status).toMatchObject({
+      port: discoveredPort,
+      warnings: [],
+      profile: {
+        profileId: "pinterest-design",
+        lease: {
+          active: true,
+          port: discoveredPort
+        }
+      }
+    });
+    expect(status).not.toHaveProperty("pid");
+    expect(rawRecord).not.toContain("devtools/browser/private-id");
+    expect(rawRecord).not.toContain(`ws://127.0.0.1:${discoveredPort}`);
+    expect(JSON.stringify(result)).not.toContain("devtools/browser/private-id");
+    expect(JSON.stringify(status)).not.toContain("devtools/browser/private-id");
+  });
+
+  it("rejects invalid explicit CDP profile status and stop records before touching live processes", async () => {
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "cookie-copy",
+      displayName: "Cookie Copy",
+      kind: "cookie_import",
+      scope: "scoped_continuity",
+      browserFamily: "unknown",
+      persistent: false,
+      headless: false,
+      authCapability: "cookie_continuity",
+      authProof: "cookie_observable"
+    });
+    registry.upsert({
+      profileId: "no-pid",
+      displayName: "No PID",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9444
+      }
+    });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((): true => true);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.statusExplicitCdpProfile("missing")).rejects.toThrow("No OpenDevBrowser CDP profile record exists");
+    await expect(manager.stopExplicitCdpProfile("cookie-copy")).rejects.toThrow("without an OpenDevBrowser-owned explicit CDP profile record");
+    await expect(manager.stopExplicitCdpProfile("no-pid")).rejects.toThrow("No OpenDevBrowser-owned CDP browser process is recorded");
+    expect(killSpy).not.toHaveBeenCalledWith(expect.any(Number), "SIGTERM");
+    killSpy.mockRestore();
+  });
+
+  it("recovers dead explicit CDP leases before restart and rejects live pid or port leases", async () => {
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    const deadRecord = registry.upsert({
+      profileId: "dead-profile",
+      displayName: "Dead Profile",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9555
+      },
+      lease: {
+        pid: 11111,
+        port: 9555,
+        launchTokenId: "dead-token",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    const livePidRecord = registry.upsert({
+      profileId: "live-pid-profile",
+      displayName: "Live PID Profile",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      lease: {
+        pid: 22222,
+        launchTokenId: "live-token",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    const livePortRecord = registry.upsert({
+      profileId: "live-port-profile",
+      displayName: "Live Port Profile",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      lease: {
+        port: 9666,
+        launchTokenId: "live-port-token",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      if (signal === 0 && pid === 22222) return true;
+      if (signal === 0) {
+        const error = new Error("process is not running") as NodeJS.ErrnoException;
+        error.code = "ESRCH";
+        throw error;
+      }
+      return true;
+    });
+    globalThis.fetch = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      const text = String(input);
+      return {
+        ok: text.includes(":9666/"),
+        json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9666/devtools/browser/live" })
+      };
+    }) as never;
+
+    await expect(recoverOrRejectExplicitCdpLease(registry, null)).resolves.toBeUndefined();
+    await expect(recoverOrRejectExplicitCdpLease(registry, { ...deadRecord, lease: undefined })).resolves.toBeUndefined();
+    await expect(recoverOrRejectExplicitCdpLease(registry, deadRecord)).resolves.toBeUndefined();
+    expect(registry.read("dead-profile")?.lease).toBeUndefined();
+    await expect(recoverOrRejectExplicitCdpLease(registry, livePidRecord)).rejects.toThrow("already running");
+    await expect(recoverOrRejectExplicitCdpLease(registry, livePortRecord)).rejects.toThrow("already running");
+    killSpy.mockRestore();
+  });
+
+  it("refuses to start an explicit CDP profile on an occupied debugging port", async () => {
+    spawn.mockReturnValue({ pid: 4321, unref: vi.fn() });
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9333/devtools/browser/occupied" })
+    }) as never;
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.startExplicitCdpProfile({
+      profile: "pinterest-design",
+      port: 9333,
+      readinessTimeoutMs: 1
+    })).rejects.toThrow("already exposes a Chrome DevTools endpoint");
+
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("refuses explicit CDP profile starts with config-managed endpoint flags", async () => {
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false }) as never;
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({
+      flags: ["--disable-background-networking", "--remote-debugging-port=9444"]
+    }));
+
+    await expect(manager.startExplicitCdpProfile({
+      profile: "pinterest-design",
+      port: 9333,
+      readinessTimeoutMs: 1
+    })).rejects.toThrow("unsafe Chrome flag --remote-debugging-port");
+
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("uses updated config for explicit CDP profile starts", async () => {
+    findChromeExecutable.mockResolvedValue("/bin/chrome");
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false }) as never;
+    const originalChromePath = "/bin/sh";
+    const updatedChromePath = process.execPath;
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({
+      chromePath: originalChromePath,
+      flags: ["--disable-background-networking"]
+    }));
+    manager.updateConfig(resolveConfig({
+      chromePath: updatedChromePath,
+      flags: ["--disable-background-networking", "--remote-debugging-port=9444"]
+    }));
+
+    await expect(manager.startExplicitCdpProfile({
+      profile: "pinterest-design",
+      port: 9333,
+      readinessTimeoutMs: 1
+    })).rejects.toThrow("unsafe Chrome flag --remote-debugging-port");
+
+    expect(findChromeExecutable).toHaveBeenCalledWith(updatedChromePath);
+    expect(findChromeExecutable).not.toHaveBeenCalledWith(originalChromePath);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("releases stale explicit CDP profile leases without killing unrelated processes", async () => {
+    const stalePid = 987_654_321;
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: stalePid,
+        port: 9333,
+        launchTokenId: "stale-profile-start",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      if (pid === stalePid && signal === 0) {
+        const error = new Error("process is not running") as NodeJS.ErrnoException;
+        error.code = "ESRCH";
+        throw error;
+      }
+      return true;
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.stopExplicitCdpProfile("pinterest-design");
+
+    expect(result.profile.lease).toBeUndefined();
+    expect(result.warnings).toContain("Recorded CDP browser process was already stopped; released stale profile lease.");
+    expect(killSpy).not.toHaveBeenCalledWith(stalePid, "SIGTERM");
+    killSpy.mockRestore();
+  });
+
+  it("treats EPERM process probes as live during explicit CDP profile status", async () => {
+    const livePid = 987_654_323;
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: livePid,
+        port: 9333,
+        launchTokenId: "live-profile-start",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      if (pid === livePid && signal === 0) {
+        const error = new Error("operation not permitted") as NodeJS.ErrnoException;
+        error.code = "EPERM";
+        throw error;
+      }
+      return true;
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.statusExplicitCdpProfile("pinterest-design");
+
+    expect(result.pid).toBe(livePid);
+    expect(result.profile.lease).toEqual(expect.objectContaining({ pid: livePid }));
+    expect(result.warnings).toEqual([]);
+    killSpy.mockRestore();
+  });
+
+  it("releases stale explicit CDP leases during profile status", async () => {
+    const stalePid = 987_654_322;
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: stalePid,
+        port: 9333,
+        launchTokenId: "stale-profile-start",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      if (pid === stalePid && signal === 0) {
+        const error = new Error("process is not running") as NodeJS.ErrnoException;
+        error.code = "ESRCH";
+        throw error;
+      }
+      return true;
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.statusExplicitCdpProfile("pinterest-design");
+
+    expect(result.pid).toBeUndefined();
+    expect(result.profile.lease).toBeUndefined();
+    expect(result.warnings).toEqual(["Recorded CDP browser process had exited; released stale profile lease."]);
+    expect(registry.read("pinterest-design")?.lease).toBeUndefined();
+    killSpy.mockRestore();
+  });
+
+  it("propagates unexpected process-probe errors during explicit CDP profile status", async () => {
+    const livePid = 987_654_324;
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: livePid,
+        port: 9333,
+        launchTokenId: "live-profile-start",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      if (pid === livePid && signal === 0) {
+        const error = new Error("unexpected process probe failure") as NodeJS.ErrnoException;
+        error.code = "EINVAL";
+        throw error;
+      }
+      return true;
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.statusExplicitCdpProfile("pinterest-design")).rejects.toThrow("unexpected process probe failure");
+    expect(killSpy).not.toHaveBeenCalledWith(livePid, "SIGTERM");
+    killSpy.mockRestore();
+  });
+
+  it("releases stale explicit CDP profile leases during status checks", async () => {
+    const stalePid = 987_654_322;
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: stalePid,
+        port: 9333,
+        launchTokenId: "stale-profile-start",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      if (pid === stalePid && signal === 0) {
+        const error = new Error("process is not running") as NodeJS.ErrnoException;
+        error.code = "ESRCH";
+        throw error;
+      }
+      return true;
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.statusExplicitCdpProfile("pinterest-design");
+
+    expect(result.profile.lease).toBeUndefined();
+    expect(result.port).toBe(9333);
+    expect(result).not.toHaveProperty("pid");
+    expect(result.warnings).toContain("Recorded CDP browser process had exited; released stale profile lease.");
+    expect(killSpy).not.toHaveBeenCalledWith(stalePid, "SIGTERM");
+    killSpy.mockRestore();
+  });
+
+  it("refuses to stop a live PID when the CDP endpoint is not local", async () => {
+    const reusedPid = 12345;
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: reusedPid,
+        port: 9333,
+        launchTokenId: "stale-profile-start",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://example.com:9333/devtools/browser/private-id" })
+    }) as never;
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.stopExplicitCdpProfile("pinterest-design")).rejects.toThrow("Non-local CDP endpoints");
+
+    expect(killSpy).not.toHaveBeenCalledWith(reusedPid, "SIGTERM");
+    killSpy.mockRestore();
+  });
+
+  it("refuses to stop a live explicit CDP profile when launch token proof is missing", async () => {
+    const livePid = 12345;
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: livePid,
+        port: 9333,
+        launchTokenId: "profile-start",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9333/devtools/browser/private-id" })
+    }) as never;
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    await expect(manager.stopExplicitCdpProfile("pinterest-design")).rejects.toThrow("launch token does not match the live lease");
+
+    expect(killSpy).not.toHaveBeenCalledWith(livePid, "SIGTERM");
+    killSpy.mockRestore();
+  });
+
+  it("releases an explicit CDP profile lease without killing a reused PID when command-line ownership does not match", async () => {
+    const reusedPid = 12347;
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: reusedPid,
+        port: 9333,
+        launchTokenId: "profile-start",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    await writeExplicitCdpLaunchToken({
+      profileId: "pinterest-design",
+      launchTokenId: "profile-start",
+      port: 9333,
+      pid: reusedPid
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9333/devtools/browser/private-id" })
+    }) as never;
+    execFileSync.mockReturnValue("/usr/bin/python unrelated-server.py --port=9333");
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.stopExplicitCdpProfile("pinterest-design");
+
+    expect(killSpy).not.toHaveBeenCalledWith(reusedPid, "SIGTERM");
+    expect(result.profile.lease).toBeUndefined();
+    expect(result.warnings).toEqual([
+      "Recorded CDP browser PID could not be verified as OpenDevBrowser-owned; released the stale profile lease without stopping the process."
+    ]);
+    killSpy.mockRestore();
+  });
+
+  it("releases explicit CDP profile leases when the process exits before SIGTERM", async () => {
+    const livePid = 12348;
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: livePid,
+        port: 9333,
+        launchTokenId: "profile-start",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    await writeExplicitCdpLaunchToken({
+      profileId: "pinterest-design",
+      launchTokenId: "profile-start",
+      port: 9333,
+      pid: livePid
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9333/devtools/browser/private-id" })
+    }) as never;
+    execFileSync.mockReturnValue(`--remote-debugging-port=9333 --user-data-dir="${latestCachePaths.profileDir}"`);
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      if (pid === livePid && signal === "SIGTERM") {
+        const error = new Error("process is not running") as NodeJS.ErrnoException;
+        error.code = "ESRCH";
+        throw error;
+      }
+      return true;
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.stopExplicitCdpProfile("pinterest-design");
+
+    expect(result.profile.lease).toBeUndefined();
+    expect(result.warnings).toEqual([
+      "Recorded CDP browser process was already stopped; released stale profile lease."
+    ]);
+    expect(registry.read("pinterest-design")?.lease).toBeUndefined();
+    killSpy.mockRestore();
+  });
+
+  it("stops a live OpenDevBrowser-owned explicit CDP profile with matching launch-token proof", async () => {
+    const livePid = 12346;
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: livePid,
+        port: 9333,
+        launchTokenId: "profile-start",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    await mkdir(latestCachePaths.profileDir, { recursive: true });
+    await writeFsFile(join(latestCachePaths.profileDir, ".opendevbrowser-cdp-launch-token.json"), `${JSON.stringify({
+      version: 1,
+      profileId: "pinterest-design",
+      launchTokenId: "profile-start",
+      port: 9333,
+      pid: livePid,
+      createdAt: "2026-07-04T00:00:00.000Z"
+    })}\n`, "utf8");
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9333/devtools/browser/private-id" })
+    }) as never;
+    let processAlive = true;
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+      if (pid !== livePid) return true;
+      if (signal === "SIGTERM") {
+        processAlive = false;
+        return true;
+      }
+      if (signal === 0 && !processAlive) {
+        const error = new Error("process is not running") as NodeJS.ErrnoException;
+        error.code = "ESRCH";
+        throw error;
+      }
+      return true;
+    });
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    const result = await manager.stopExplicitCdpProfile("pinterest-design");
+
+    expect(killSpy).toHaveBeenCalledWith(livePid, "SIGTERM");
+    expect(result.profile.lease).toBeUndefined();
+    expect(result.port).toBe(9333);
+    expect(result.warnings).toEqual([]);
+    killSpy.mockRestore();
+  });
+
+  it("validates explicit CDP launch-token proof shapes without trusting mismatched leases", async () => {
+    const registry = createSessionProfileRegistry(latestCachePaths.profileRegistryDir);
+    const validToken: ExplicitCdpLaunchTokenProof = {
+      version: 1,
+      profileId: "pinterest-design",
+      launchTokenId: "launch-token",
+      port: 9333,
+      pid: 12345,
+      createdAt: "2026-07-04T00:00:00.000Z"
+    };
+    const record = registry.upsert({
+      profileId: "pinterest-design",
+      displayName: "Pinterest Design",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        pid: 12345,
+        port: 9333,
+        launchTokenId: "launch-token",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+    const recordWithoutPid = registry.upsert({
+      profileId: "pinterest-design-no-pid",
+      displayName: "Pinterest Design No PID",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      browserFamily: "chrome",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      endpoint: {
+        host: "127.0.0.1",
+        port: 9333
+      },
+      lease: {
+        port: 9333,
+        launchTokenId: "launch-token",
+        acquiredAt: "2026-07-04T00:00:00.000Z",
+        lastSeenAt: "2026-07-04T00:00:00.000Z"
+      }
+    });
+
+    expect(isExplicitCdpLaunchTokenProof(null)).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof([])).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof({ ...validToken, version: 2 })).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof({ ...validToken, profileId: 123 })).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof({ ...validToken, launchTokenId: 123 })).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof({ ...validToken, port: 0 })).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof({ ...validToken, port: 1.5 })).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof({ ...validToken, pid: "12345" })).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof({ ...validToken, createdAt: 123 })).toBe(false);
+    expect(isExplicitCdpLaunchTokenProof(validToken)).toBe(true);
+
+    expect(explicitCdpLaunchTokenMatches({ ...record, lease: undefined }, validToken)).toBe(false);
+    expect(explicitCdpLaunchTokenMatches({ ...record, endpoint: undefined }, validToken)).toBe(false);
+    expect(explicitCdpLaunchTokenMatches(record, { ...validToken, profileId: "other" })).toBe(false);
+    expect(explicitCdpLaunchTokenMatches(record, { ...validToken, launchTokenId: "other" })).toBe(false);
+    expect(explicitCdpLaunchTokenMatches(record, { ...validToken, port: 9444 })).toBe(false);
+    expect(explicitCdpLaunchTokenMatches(record, { ...validToken, pid: 54321 })).toBe(false);
+    expect(explicitCdpLaunchTokenMatches(record, validToken)).toBe(true);
+    expect(explicitCdpLaunchTokenMatches(recordWithoutPid, {
+      ...validToken,
+      profileId: "pinterest-design-no-pid",
+      pid: undefined
+    })).toBe(true);
+
+    const warn = vi.fn();
+    const logger = { warn };
+    await expect(deleteExplicitCdpLaunchToken(join(latestCachePaths.root, "missing-profile"), logger)).resolves.toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
+    await writeFsFile(join(latestCachePaths.root, "profile-file"), "not a directory", "utf8");
+    await expect(deleteExplicitCdpLaunchToken(join(latestCachePaths.root, "profile-file"), logger)).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith("cdp.profile_launch_token.cleanup_failed", {
+      data: { errorCode: "ENOTDIR" }
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(latestCachePaths.root);
+    warn.mockRestore();
   });
 
   it("rejects user-owned Google auth for direct CDP connect", async () => {
@@ -1786,9 +3341,14 @@ describe("BrowserManager", () => {
 
     expect(loadSystemChromeCookies).not.toHaveBeenCalled();
     expect(result.warnings).not.toContain("System Chrome cookie bootstrap disabled for this run.");
-    expect(result.diagnostics?.authProvenance).toEqual({
+    expect(result.diagnostics?.authProvenance).toMatchObject({
       googleAuthIntent: "none",
       profileSource: "live_extension_profile",
+      profile: expect.objectContaining({
+        kind: "extension_live",
+        authCapability: "live_extension",
+        authProof: "live_extension"
+      }),
       cookieBootstrap: {
         attempted: false,
         disabled: false,
@@ -2361,6 +3921,31 @@ describe("BrowserManager", () => {
     await expect(manager.connectRelay("ws://127.0.0.1:8787/cdp"))
       .rejects
       .toThrow("connectOverCDP failed");
+  });
+
+  it("redacts websocket endpoints and tokens from connectOverCDP failures", async () => {
+    connectOverCDP.mockRejectedValueOnce(
+      new Error("failed ws://127.0.0.1:9222/devtools/browser/test?token=raw-secret&pairingToken=pair-secret#hash token=loose-secret")
+    );
+
+    const { BrowserManager } = await import("../src/browser/browser-manager");
+    const manager = new BrowserManager("/tmp/project", resolveConfig({}));
+
+    let thrown: unknown;
+    try {
+      await manager.connect({
+        wsEndpoint: "ws://127.0.0.1:9222/devtools/browser/test?token=input-secret"
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    const message = thrown instanceof Error ? thrown.message : "";
+    expect(message).toContain("failed ws://127.0.0.1:9222/devtools/browser/test token=[REDACTED]");
+    expect(message).not.toContain("raw-secret");
+    expect(message).not.toContain("pair-secret");
+    expect(message).not.toContain("input-secret");
   });
 
   it("connects using default host and port", async () => {
@@ -12125,8 +13710,8 @@ describe("BrowserManager", () => {
 
     const { BrowserManager } = await import("../src/browser/browser-manager");
     const manager = new BrowserManager("/tmp/project", resolveConfig({}));
-    const first = await manager.launch({ profile: "default" });
-    const second = await manager.launch({ profile: "default" });
+    const first = await manager.launch({ profile: "dialog-first" });
+    const second = await manager.launch({ profile: "dialog-second" });
 
     firstBundle.page.emit("dialog", {
       type: () => "alert",
@@ -12683,7 +14268,7 @@ describe("BrowserManager", () => {
     const promoteWarnSpy = vi.spyOn(promoteLogger, "warn");
     const promoteInfoSpy = vi.spyOn(promoteLogger, "info");
 
-    const promoteLaunch = await promoteManager.launch({ profile: "default" });
+    const promoteLaunch = await promoteManager.launch({ profile: "fingerprint-promote" });
     promoteBundle.page.emit("request", {
       method: () => "GET",
       url: () => "https://example.com/ok",
@@ -12790,7 +14375,7 @@ describe("BrowserManager", () => {
     const rollbackWarnSpy = vi.spyOn(rollbackLogger, "warn");
     const rollbackInfoSpy = vi.spyOn(rollbackLogger, "info");
 
-    const rollbackLaunch = await rollbackManager.launch({ profile: "default" });
+    const rollbackLaunch = await rollbackManager.launch({ profile: "fingerprint-rollback" });
     rollbackBundle.page.emit("request", {
       method: () => "GET",
       url: () => "https://example.com/challenge",
@@ -15028,7 +16613,7 @@ describe("BrowserManager", () => {
     connectOverCDP.mockResolvedValue(undefined);
     await expect(manager.connect({
       wsEndpoint: "ws://127.0.0.1:9222/devtools/browser/test"
-    })).rejects.toThrow("Relay /cdp connectOverCDP failed");
+    })).rejects.toThrow("Direct CDP connectOverCDP failed");
   });
 
   it("covers extension entry helpers, relay status fallbacks, and profile-lock messaging", async () => {

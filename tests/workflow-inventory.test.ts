@@ -20,10 +20,10 @@ describe("workflow inventory", () => {
   it("builds a code-derived workflow inventory with the expected current splits", () => {
     const inventory = buildWorkflowInventory();
 
-    expect(inventory.coverage.commandCount).toBe(77);
+    expect(inventory.coverage.commandCount).toBe(78);
     expect(inventory.coverage.toolCount).toBe(70);
     expect(inventory.coverage.cliToolPairCount).toBe(67);
-    expect(inventory.coverage.cliOnlyCommandCount).toBe(10);
+    expect(inventory.coverage.cliOnlyCommandCount).toBe(11);
     expect(inventory.coverage.toolOnlySurfaceCount).toBe(3);
   });
 
@@ -71,6 +71,7 @@ describe("workflow inventory", () => {
       "workflow.product_video.url",
       "workflow.product_video.name",
       "workflow.inspiredesign.run",
+      "workflow.inspiredesign.harvest",
       "workflow.macro.web_search",
       "workflow.macro.web_fetch",
       "workflow.macro.community_search",
@@ -128,6 +129,7 @@ describe("workflow inventory", () => {
     const productVideoUrl = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "workflow.product_video.url");
     const productVideoName = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "workflow.product_video.name");
     const inspiredesign = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "workflow.inspiredesign.run");
+    const inspiredesignHarvest = VALIDATION_SCENARIOS.find((scenario) => scenario.id === "workflow.inspiredesign.harvest");
 
     expect(community?.allowedStatuses).toEqual(["pass", "env_limited"]);
     expect(community?.requiresExtension).toBe(true);
@@ -154,6 +156,21 @@ describe("workflow inventory", () => {
     expect(inspiredesign?.secondaryArgs).toEqual(expect.arrayContaining(["--include-prototype-guidance"]));
     expect(inspiredesign?.secondaryArgs).not.toContain("--urls");
     expect(inspiredesign?.ownerFiles).toContain("src/cli/commands/inspiredesign.ts");
+    expect(inspiredesignHarvest?.allowedStatuses).toEqual(["pass", "env_limited"]);
+    expect(inspiredesignHarvest?.entryPath).toBe("opendevbrowser inspiredesign harvest");
+    expect(inspiredesignHarvest?.primaryArgs).toEqual(expect.arrayContaining(["--browser-mode", "managed", "--visual-evidence", "required"]));
+    expect(inspiredesignHarvest?.secondaryArgs).toEqual(expect.arrayContaining([
+      "--provider",
+      "social/pinterest",
+      "--profile",
+      "pinterest-design",
+      "--use-cookies",
+      "--cookie-policy",
+      "required",
+      "--challenge-automation-mode",
+      "browser_with_helper"
+    ]));
+    expect(inspiredesignHarvest?.ownerFiles).toContain("src/providers/browser-native-discovery.ts");
   });
 });
 

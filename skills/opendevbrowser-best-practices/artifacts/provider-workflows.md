@@ -92,7 +92,7 @@ This is guidance for agents using `inspiredesign harvest`; it is not a new produ
 2. Read `meta.discovery.acceptedUrls` from the JSON output or artifact metadata.
 3. Keep only canonical `https://www.pinterest.com/pin/<id>/` URLs.
 4. Run the canonical harvest command once per selected pin with `--provider social/pinterest --url "https://www.pinterest.com/pin/<id>/"`.
-5. In extension mode, the canonical harvest opens the exact pin in the extension before extracting pin-media bytes, which stabilizes live GIF and video pins.
+5. Prefer an active managed headed workflow session with `--browser-mode managed --profile <name>` for non-Google Pinterest login continuity; use extension `/ops` only for live active-tab reuse or user-owned Google continuity. The canonical harvest opens the exact pin in the active managed or extension workflow session before extracting pin-media bytes, which stabilizes live GIF and video pins.
 6. Trust only outputs with top-level `ready=true`, `productSuccess=true`, `artifactAuthority=product_ready`, `evidenceAuthority=pin_media_ready`, non-empty `ranked-references.json`, and manifest-backed authority from `pin-media-index.json`; `snapshot_ready` and `motion_ready` are not substitutes for canonical pin-media readiness.
 7. Use `media-analysis.json` as the deterministic design-fact surface for trusted saved pin media only; it can guide palette, tone, layout, OCR-free typography structure, text-region layout, and sampled motion decisions, but it never replaces `pin-media-index.json` readiness authority.
 8. Do not claim readable text extraction, exact copy, font families, OCR, model vision, Tesseract, OpenCV, Sharp, browser canvas analysis, new dependencies, or raw `mediaAnalysis` in `canvas-plan.request.json`.

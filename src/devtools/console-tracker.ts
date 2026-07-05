@@ -18,7 +18,7 @@ function shouldRedactToken(token: string): boolean {
   return categories >= 2;
 }
 
-function redactText(text: string): string {
+export function redactText(text: string): string {
   let result = text.replace(SENSITIVE_KV_PATTERN, (match) => {
     const sepIndex = match.search(/[=:]/);
     return match.slice(0, sepIndex + 1) + "[REDACTED]";

@@ -35,16 +35,25 @@ $CLI_PREFIX status --daemon --output-format json
 EOF
 }
 
+print_managed_profile_readiness() {
+  cat <<EOF
+# Managed headed profile preflight:
+$CLI_PREFIX status --daemon --output-format json
+# Continue only when data.fingerprintCurrent === true. Use a dedicated non-default --profile for non-Google login continuity.
+# Use extension /ops instead when you need live active-tab reuse or user-owned Google OAuth continuity.
+EOF
+}
+
 print_pinterest_multi_pin_harvest_guidance() {
   cat <<EOF
 # Multi-pin Pinterest harvest agent pattern. This is guidance over inspiredesign harvest, not a standalone product workflow.
 # 1. Run the query discovery command above with --query and --provider social/pinterest.
 # 2. Read meta.discovery.acceptedUrls from the JSON output or artifact metadata.
 # 3. Keep only canonical https://www.pinterest.com/pin/<id>/ URLs.
-# 4. Run one canonical harvest per selected pin and omit --output-dir:
-$CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --provider social/pinterest --url "https://www.pinterest.com/pin/<pin-id>/" --max-references 1 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
+# 4. Run one canonical harvest per selected pin in a dedicated managed headed profile and omit --output-dir:
+$CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --provider social/pinterest --url "https://www.pinterest.com/pin/<pin-id>/" --max-references 1 --visual-evidence required --browser-mode managed --profile pinterest-design --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
 # 5. Each omitted run returns its own artifact_path under .opendevbrowser/inspiredesign/<runId>; inspect that path instead of creating a custom workflow root.
-# 6. Extension-mode canonical harvest opens the exact canonical pin in the extension before byte-backed pin-media extraction.
+# 6. Canonical harvest opens the exact canonical pin in the active managed or extension workflow session before byte-backed pin-media extraction. Switch to extension /ops only for live-tab reuse or user-owned Google continuity.
 # 7. Trust only outputs with top-level ready=true, productSuccess=true, artifactAuthority=product_ready, evidenceAuthority=pin_media_ready, non-empty ranked-references.json, and manifest-backed pin-media-index.json. snapshot_ready or motion_ready are not substitutes for pin-media readiness.
 # 8. Use media-analysis.json for deterministic design facts from trusted saved pin media only. It is not readiness authority, and pin-media-index.json remains the only pin-media readiness authority.
 # 9. Do not claim readable text extraction, exact copy, font families, OCR, model vision, Tesseract, OpenCV, Sharp, browser canvas analysis, new dependencies, or raw mediaAnalysis in canvas-plan.request.json.
@@ -114,9 +123,9 @@ EOF
 # URL-backed inspiredesign run forces deep capture for DOM/layout diagnostics; do not disable capture for URL-backed runs.
 $CLI_PREFIX inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --include-prototype-guidance --mode json --output-format json
 EOF
-    print_extension_readiness
+    print_managed_profile_readiness
     cat <<EOF
-$CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
+$CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode managed --profile pinterest-design --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
 # Inspect top-level ready, productSuccess, artifactAuthority, evidenceAuthority, nextStepGuidance.readiness, and doNotProceedIf before Canvas continuation. For non-product-ready evidence, follow recovery-first guidance.
 # Review visual-evidence.json, screenshot-index.json, motion-evidence.json, pin-media-evidence.json, pin-media-index.json, media-analysis.json, ranked-references.json, and meta-prompt.md before design or Canvas work.
 EOF
@@ -257,10 +266,10 @@ $CLI_PREFIX shopping run --query "27 inch 4k monitor" --providers shopping/bestb
 # Public-reference inspiredesign contract synthesis
 $CLI_PREFIX inspiredesign run --brief "Design a premium docs workspace" --url "https://example.com/reference-a" --url "https://example.com/reference-b" --include-prototype-guidance --mode json --output-format json
 EOF
-    print_extension_readiness
+    print_managed_profile_readiness
     cat <<EOF
 # Browser-native Pinterest recipe. Continue only when top-level ready=true, productSuccess=true, artifactAuthority=product_ready, evidenceAuthority=pin_media_ready, ranked references are non-empty, and pin-media-index.json is manifest-backed.
-$CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
+$CLI_PREFIX inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode managed --profile pinterest-design --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
 EOF
     print_pinterest_multi_pin_harvest_guidance
     cat <<EOF

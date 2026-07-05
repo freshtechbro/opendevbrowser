@@ -11,6 +11,7 @@ import {
   createAutomationCoordinator,
   type AutomationCoordinatorLike
 } from "../automation/coordinator";
+import type { RelayStatus } from "../relay/relay-server";
 
 type CreateCoreRuntimeAssembliesArgs = {
   cacheRoot: string;
@@ -18,6 +19,7 @@ type CreateCoreRuntimeAssembliesArgs = {
   manager: BrowserManagerLike;
   challengeConfig: ProvidersChallengeOrchestrationConfig;
   challengeOrchestrator?: ChallengeOrchestrator;
+  relayStatus?: () => RelayStatus | null;
 };
 
 type CoreRuntimeAssemblies = {
@@ -48,7 +50,8 @@ export function createCoreRuntimeAssemblies(
     governedLanes: challengeConfig.governed,
     helperBridgeEnabled: challengeConfig.optionalComputerUseBridge.enabled,
     snapshotMaxChars: args.config.snapshot.maxChars,
-    mediaAnalysisConfig: args.config.inspiredesign.mediaAnalysis
+    mediaAnalysisConfig: args.config.inspiredesign.mediaAnalysis,
+    ...(args.relayStatus ? { relayStatus: args.relayStatus } : {})
   });
 
   return {

@@ -22,6 +22,7 @@ type ResearchCommandArgs = {
   outputDir?: string;
   ttlHours?: number;
   browserMode?: WorkflowBrowserMode;
+  profile?: string;
   useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: "off" | "auto" | "required";
@@ -220,6 +221,16 @@ const parseResearchRunArgs = (rawArgs: string[]): ResearchCommandArgs => {
       continue;
     }
 
+    if (arg === "--profile") {
+      parsed.profile = requireValue(rawArgs, index, "--profile");
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--profile=")) {
+      parsed.profile = arg.split("=", 2)[1];
+      continue;
+    }
+
     if (arg === "--use-cookies") {
       parsed.useCookies = true;
       continue;
@@ -294,6 +305,7 @@ export async function runResearchCommand(args: ParsedArgs) {
     outputDir: resolveWorkflowOutputDirFlag(parsed.outputDir),
     ttlHours: parsed.ttlHours,
     browserMode: parsed.browserMode,
+    profile: parsed.profile,
     useCookies: parsed.useCookies,
     challengeAutomationMode: parsed.challengeAutomationMode,
     cookiePolicyOverride: parsed.cookiePolicyOverride

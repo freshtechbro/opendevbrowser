@@ -1,16 +1,16 @@
 # Workflow Surface Map
 
 Status: active
-Last updated: 2026-05-19
+Last updated: 2026-07-05
 
 Canonical code-derived workflow inventory across CLI commands, tool surfaces, and executable validation scenarios.
 
 ## Coverage summary
 
-- CLI commands: `77`
+- CLI commands: `78`
 - Tool surfaces: `70`
 - CLI<->tool pairs: `67`
-- CLI-only commands: `10`
+- CLI-only commands: `11`
 - Tool-only surfaces: `3`
 - Provider ids in live scenario source: `22`
 
@@ -36,6 +36,7 @@ Canonical code-derived workflow inventory across CLI commands, tool surfaces, an
 
 - `launch`
 - `connect`
+- `cdp-profile`
 - `disconnect`
 - `status`
 - `status-capabilities`
@@ -234,6 +235,7 @@ Canonical code-derived workflow inventory across CLI commands, tool surfaces, an
 | `scenario.workflow.product_video.url` | `opendevbrowser product-video run --product-url ...` | Build a product presentation asset pack from a live Best Buy PDP for a creative brief. | Build a second product presentation asset pack from a different live Best Buy PDP to check asset extraction variability. |
 | `scenario.workflow.product_video.name` | `opendevbrowser product-video run --product-name ...` | Resolve a product by name and prepare an asset pack for a motion designer without supplying a URL manually. | Resolve a second named product with the same provider hint to check search-driven asset-pack stability. |
 | `scenario.workflow.inspiredesign.run` | `opendevbrowser inspiredesign run` | Study multiple public references and return a reusable design contract without relying on deep browser capture. | Return the same inspiredesign contract plus prototype guidance while proving repeated --url inputs stay canonical. |
+| `scenario.workflow.inspiredesign.harvest` | `opendevbrowser inspiredesign harvest` | Harvest public visual references with managed mode and visual evidence requirements. | Exercise managed-profile Pinterest harvest controls with cookies, required cookie policy, and browser-scoped challenge automation. |
 | `scenario.workflow.macro.web_search` | `opendevbrowser macro-resolve --execute @web.search(...)` | Find authoritative public guidance on Playwright locators for a browser automation debugging note. | Find public Chrome DevTools Protocol guidance on popup attach flows for a browser-runtime investigation. |
 | `scenario.workflow.macro.web_fetch` | `opendevbrowser macro-resolve --execute @web.fetch(...)` | Fetch a Chrome extensions debugger reference page to inspect the document content directly. | Fetch a Playwright docs page to confirm direct page retrieval across a different domain and docs stack. |
 | `scenario.workflow.macro.community_search` | `opendevbrowser macro-resolve --execute @community.search(...)` | Find public community threads about browser automation failures that an engineer would review before opening an incident. | Find community discussions about popup attach failures to compare troubleshooting patterns. |
@@ -264,6 +266,7 @@ Canonical code-derived workflow inventory across CLI commands, tool surfaces, an
 - `serve`
 - `daemon`
 - `native`
+- `cdp-profile`
 - `artifacts`
 - `rpc`
 

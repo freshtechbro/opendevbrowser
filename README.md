@@ -12,7 +12,7 @@
 
 OpenDevBrowser is an agent-agnostic browser automation runtime for CLI workflows, [OpenCode](https://opencode.ai) tool calls, and Chrome extension relay sessions. It supports managed launches, direct CDP attach, and extension-backed Ops sessions.
 
-The current public surface includes [77 CLI commands and 70 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
+The current public surface includes [78 CLI commands and 70 `opendevbrowser_*` tools](docs/SURFACE_REFERENCE.md); see [docs/CLI.md](docs/CLI.md) for the operational command guide.
 Generated help is the canonical first-contact discovery surface: `npx opendevbrowser --help` and `npx opendevbrowser help` now lead with a `Find It Fast` block that uses the exact lookup terms `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use`.
 Shipped builds include Browser replay through `screencast-start` or `screencast-stop` and a separate public read-only desktop observation plane through the `desktop-*` family; those lanes stay explicit, browser-scoped where applicable, and make it clear this is not a desktop agent.
 
@@ -111,17 +111,20 @@ Package postinstall auto-start targets the packaged CLI entrypoint `dist/cli/ind
 
 Bundled skills sync to **OpenCode, Codex, ClaudeCode, AmpCLI, and Agents** targets during install. `npx opendevbrowser` manages global or project-local targets according to the selected skills mode, and package installation (`npm install -g`, local tarball install, or equivalent) best-effort syncs the canonical bundled packs into the managed global targets during package `postinstall`. If a global update appears stale, compare `command -v opendevbrowser`, `which -a opendevbrowser`, and `npm prefix -g`; install with the prefix that owns the active binary. See [docs/CLI.md](docs/CLI.md) for exact target paths.
 
-### CLI + Extension (No OpenCode)
+### CLI Without OpenCode
 
 ```bash
 # Start relay/daemon runtime
 npx opendevbrowser serve
 
-# Launch using extension mode (requires extension popup connected)
-npx opendevbrowser launch --extension-only --wait-for-extension
-
-# Or force managed mode without extension
+# Launch without the Chrome extension
 npx opendevbrowser launch --no-extension
+
+# Reuse a dedicated managed headed profile for non-Google login continuity
+npx opendevbrowser launch --no-extension --profile pinterest-design
+
+# Use extension mode only for live active-tab reuse or user-owned Google OAuth continuity
+npx opendevbrowser launch --extension-only --wait-for-extension
 ```
 
 Unpacked extension load path after local install:
@@ -711,14 +714,14 @@ All fields are optional. OpenDevBrowser works with sensible defaults.
 The CLI is agent-agnostic and supports the full automation surface (session, navigation, interaction, DOM, browser capture and replay, desktop observation, targets, pages, export, devtools, annotate, and canvas).
 All commands listed in the CLI reference are implemented and available in the current codebase.
 See [docs/CLI.md](docs/CLI.md) for the full command and flag matrix.
-See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (77 CLI commands, 70 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
+See [docs/SURFACE_REFERENCE.md](docs/SURFACE_REFERENCE.md) for the source-accurate inventory matrix (78 CLI commands, 70 tools, `/ops`, `/canvas`, and `/cdp` channel contracts).
 
 ### CLI Category Matrix (core command groups)
 
 | Category | Commands |
 |---------|----------|
 | Install/runtime | `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `run` |
-| Session/connection | `launch`, `connect`, `disconnect`, `status`, `status-capabilities`, `cookie-import`, `cookie-list` |
+| Session/connection | `launch`, `connect`, `disconnect`, `status`, `status-capabilities`, `cdp-profile`, `cookie-import`, `cookie-list` |
 | Navigation | `goto`, `wait`, `snapshot`, `review`, `review-desktop` |
 | Interaction | `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view`, `upload`, `pointer-move`, `pointer-down`, `pointer-up`, `pointer-drag` |
 | Targets/pages | `targets-list`, `target-use`, `target-new`, `target-close`, `page`, `pages`, `page-close` |
@@ -768,12 +771,12 @@ Start the daemon with `npx opendevbrowser serve`, then use:
 | `npx opendevbrowser canvas --command canvas.session.open --params '{...}'` | Start or continue a design-canvas workflow through the daemon |
 | `npx opendevbrowser macro-resolve --expression '@media.search("youtube transcript parity", "youtube", 5)' --execute --timeout-ms 120000` | Execute macro plans with extended timeout for slow runs |
 
-Workflow cookie controls (`research run`, `shopping run`, `product-video run`, `inspiredesign run`):
+Workflow cookie controls (`research run`, `shopping run`, `product-video run`, `inspiredesign run`, `inspiredesign harvest`):
 - Defaults come from `providers.cookiePolicy` (`off|auto|required`) and `providers.cookieSource` (`file|env|inline`).
 - Per-run overrides: `--use-cookies`, `--cookie-policy-override` (alias `--cookie-policy`).
 - `auto` is non-blocking when cookies are unavailable; `required` fails fast with `reasonCode=auth_required`.
 
-Workflow challenge controls (`research run`, `shopping run`, `product-video run`, `inspiredesign run`):
+Workflow challenge controls (`research run`, `shopping run`, `product-video run`, `inspiredesign run`, `inspiredesign harvest`):
 - Per-run override: `--challenge-automation-mode off|browser|browser_with_helper`, which maps to `challengeAutomationMode`.
 - Effective precedence is `run > session > config`.
 - `off` keeps detection and reporting active but stands down challenge actions.

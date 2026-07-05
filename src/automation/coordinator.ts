@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { BrowserManagerLike, BrowserReviewResult } from "../browser/manager-types";
 import { buildBrowserReviewResult } from "../browser/review-surface";
+import { summarizeBrowserSessionCapabilities } from "../browser/session-capabilities";
 import type { ProvidersChallengeGovernedLanesConfig } from "../config";
 import type {
   DesktopAuditInfo,
@@ -17,6 +18,7 @@ import type {
   ChallengeGovernedLaneKind,
   ChallengeInspectPlan
 } from "../challenges";
+import type { RelayStatus } from "../relay/relay-server";
 import {
   resolveInspiredesignMediaAnalysisBinaries,
   type InspiredesignMediaAnalysisBinaryPathsConfig,
@@ -103,6 +105,7 @@ export type RuntimeCapabilityDiscovery = {
     sessionId: string;
     targetId?: string | null;
     challengePlan: ChallengeInspectPlan;
+    capabilities: ReturnType<typeof summarizeBrowserSessionCapabilities>;
   };
 };
 
@@ -139,6 +142,7 @@ type CreateAutomationCoordinatorArgs = {
   helperBridgeEnabled: boolean;
   snapshotMaxChars: number;
   mediaAnalysisConfig?: InspiredesignMediaAnalysisBinaryPathsConfig;
+  relayStatus?: () => RelayStatus | null;
   resolveMediaAnalysisBinaries?: () => Promise<InspiredesignMediaAnalysisBinaryResolution>;
 };
 
@@ -206,14 +210,14 @@ export function createAutomationCoordinator(
   args: CreateAutomationCoordinatorArgs
 ): AutomationCoordinatorLike {
   const desktopAvailable = async (): Promise<boolean> => {
-    const status = await args.desktopRuntime.status();
-    return status.available;
+    const desktopStatus = await args.desktopRuntime.status();
+    return desktopStatus.available;
   };
 
   const requestDesktopObservation = async (
     request: DesktopObservationRequest
   ): Promise<DesktopObservationEnvelope> => {
-    const status = await args.desktopRuntime.status();
+    const desktopStatus = await args.desktopRuntime.status();
     const requestedAt = new Date().toISOString();
     const observationId = randomUUID();
     const includeWindows =
@@ -325,7 +329,7 @@ export function createAutomationCoordinator(
       observationId,
       requestedAt,
       ...(request.browserSessionId ? { browserSessionId: request.browserSessionId } : {}),
-      status,
+      status: desktopStatus,
       ...(windows ? { windows } : {}),
       ...(windowsAudit ? { windowsAudit } : {}),
       ...(windowsFailure ? { windowsFailure } : {}),
@@ -411,15 +415,15 @@ export function createAutomationCoordinator(
     targetId?: string | null;
     runMode?: ChallengeAutomationMode;
   }): Promise<RuntimeCapabilityDiscovery> => {
-    const status = await args.desktopRuntime.status();
+    const desktopStatus = await args.desktopRuntime.status();
     const mediaAnalysis = await (
       args.resolveMediaAnalysisBinaries
       ?? (() => resolveInspiredesignMediaAnalysisBinaries({ config: args.mediaAnalysisConfig }))
     )();
     const host: RuntimeCapabilityDiscovery["host"] = {
       desktopObservation: {
-        ...status,
-        accessibilityAvailable: accessibilityAvailable(status.capabilities)
+        ...desktopStatus,
+        accessibilityAvailable: accessibilityAvailable(desktopStatus.capabilities)
       },
       browserReplay: {
         available: true
@@ -446,13 +450,22 @@ export function createAutomationCoordinator(
       targetId: input.targetId,
       runMode: input.runMode
     });
+    const sessionStatus = await args.manager.status(input.browserSessionId);
+    const targetListing = await args.manager.listTargets(input.browserSessionId, false).catch(() => null);
 
     return {
       host,
       session: {
         sessionId: input.browserSessionId,
         ...(typeof input.targetId !== "undefined" ? { targetId: input.targetId } : {}),
-        challengePlan
+        challengePlan,
+        capabilities: summarizeBrowserSessionCapabilities({
+          mode: sessionStatus.mode,
+          diagnostics: sessionStatus.diagnostics,
+          relay: args.relayStatus?.() ?? null,
+          targets: targetListing ? { targets: targetListing.targets } : { targets: [], unavailable: true },
+          challengePlan
+        })
       }
     };
   };
