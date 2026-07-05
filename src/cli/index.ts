@@ -469,6 +469,12 @@ async function main(): Promise<void> {
     });
 
     registerCommand({
+      name: "cdp-profile",
+      description: "Manage OpenDevBrowser-owned local CDP profiles",
+      run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/session/cdp-profile"), "runCdpProfile")
+    });
+
+    registerCommand({
       name: "disconnect",
       description: "Disconnect a daemon session",
       run: (parsedArgs) => runLazyCommand(parsedArgs, () => import("./commands/session/disconnect"), "runSessionDisconnect")

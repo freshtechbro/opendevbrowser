@@ -6,7 +6,7 @@ Compact operational map of the current OpenDevBrowser surfaces, with the `/canva
 
 ## Current coverage snapshot
 
-- CLI commands: `77`
+- CLI commands: `78`
 - Plugin tools: `70`
 - CLI-tool pairs: `67`
 - `/ops` command names: `59`
@@ -29,7 +29,7 @@ Skill-pack installation and discovery are synchronized for:
 ## CLI surface categories
 
 - Install/runtime: `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `run`, `artifacts`
-- Session/connection/workflow: `launch`, `connect`, `disconnect`, `status`, `status-capabilities`, `cookie-import`, `cookie-list`, `research`, `shopping`, `product-video`, `inspiredesign`
+- Session/connection/workflow: `launch`, `connect`, `cdp-profile`, `disconnect`, `status`, `status-capabilities`, `cookie-import`, `cookie-list`, `research`, `shopping`, `product-video`, `inspiredesign`
 - Navigation/interaction: `goto`, `wait`, `snapshot`, `review`, `review-desktop`, `click`, `hover`, `press`, `check`, `uncheck`, `type`, `select`, `scroll`, `scroll-into-view`, `upload`
 - Pointer controls: `pointer-move`, `pointer-down`, `pointer-up`, `pointer-drag`
 - Targets/pages/DOM: `targets-list`, `target-use`, `target-new`, `target-close`, `page`, `pages`, `page-close`, `dom-html`, `dom-text`, `dom-attr`, `dom-value`, `dom-visible`, `dom-enabled`, `dom-checked`
@@ -44,7 +44,7 @@ Skill-pack installation and discovery are synchronized for:
 - Runtime parity tools map to the CLI runtime categories, including `opendevbrowser_status_capabilities`, `opendevbrowser_review_desktop`, `opendevbrowser_session_inspector`, `opendevbrowser_session_inspector_plan`, `opendevbrowser_session_inspector_audit`, and `opendevbrowser_canvas`.
 - Additional parity tools cover temporal browser capture (`opendevbrowser_screencast_start`, `opendevbrowser_screencast_stop`) and sibling desktop observation (`opendevbrowser_desktop_status`, `opendevbrowser_desktop_windows`, `opendevbrowser_desktop_active_window`, `opendevbrowser_desktop_capture_desktop`, `opendevbrowser_desktop_capture_window`, `opendevbrowser_desktop_accessibility_snapshot`).
 - Tool-only: `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
-- CLI-only: `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `artifacts`, `rpc`.
+- CLI-only: `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `artifacts`, `cdp-profile`, `rpc`.
 
 ## Relay channels
 

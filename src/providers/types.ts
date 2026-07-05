@@ -417,6 +417,7 @@ export interface ProviderRunOptions {
   useCookies?: boolean;
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
+  profile?: string;
   suspendedIntent?: SuspendedIntentSummary;
   tier?: {
     preferred?: ProviderTier;
@@ -504,6 +505,37 @@ export interface ProviderRecoveryHints {
 
 export type WorkflowBrowserMode = "auto" | "extension" | "managed";
 export type InspiredesignCaptureMode = "off" | "deep";
+export type ProviderAuthCapability =
+  | "public"
+  | "cookie_continuity"
+  | "profile_continuity"
+  | "explicit_cdp_profile"
+  | "live_extension_required"
+  | "blocked";
+export type ProviderAuthProof =
+  | "none"
+  | "live_extension"
+  | "profile_declared"
+  | "cookies_observable"
+  | "provider_verified";
+export type ProviderGoogleSensitiveRisk =
+  | "none"
+  | "explicit_cdp_not_google_proof"
+  | "cookies_not_google_proof"
+  | "user_owned_google_extension_only";
+export type ProviderAuthRecommendedMode =
+  | "managed_headless"
+  | "managed_headed"
+  | "explicit_cdp_profile"
+  | "extension";
+export type ProviderAuthDoNotProceedReason =
+  | "extension_ops_unavailable"
+  | "requires_provider_verified_login"
+  | "raw_cdp_unknown_profile"
+  | "google_user_owned_requires_extension_ops";
+
+export type ProviderProfileMode = "managed" | "explicit_cdp";
+export type ProviderProfileTrust = "trusted";
 
 export interface ProviderRuntimePolicyInput {
   browserMode?: WorkflowBrowserMode;
@@ -511,11 +543,27 @@ export interface ProviderRuntimePolicyInput {
   challengeAutomationMode?: ChallengeAutomationMode;
   cookiePolicyOverride?: ProviderCookiePolicy;
   googleAuthIntent?: GoogleAuthIntent;
+  profile?: string;
+  profileMode?: ProviderProfileMode;
+}
+
+export interface ProviderTrustedProfileProvenance {
+  profile?: string;
+  profileId?: string;
+  profileMode: ProviderProfileMode;
 }
 
 export interface ResolvedProviderRuntimePolicy {
   auth: {
     googleAuthIntent: GoogleAuthIntent;
+    capability: ProviderAuthCapability;
+    proof: ProviderAuthProof;
+    googleSensitiveRisk: ProviderGoogleSensitiveRisk;
+    recommendedMode: ProviderAuthRecommendedMode;
+    doNotProceedIf: ProviderAuthDoNotProceedReason[];
+    profileId?: string;
+    profileMode?: ProviderProfileMode;
+    profileTrust?: ProviderProfileTrust;
   };
   browser: {
     preferredModes: BrowserFallbackMode[];

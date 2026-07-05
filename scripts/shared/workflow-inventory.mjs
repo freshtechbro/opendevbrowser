@@ -41,8 +41,8 @@ const CLI_FAMILY_DEFINITIONS = [
   {
     id: "session",
     label: "Session lifecycle",
-    commands: ["launch", "connect", "disconnect", "status", "status-capabilities", "cookie-import", "cookie-list"],
-    ownerFiles: ["src/cli/args.ts", "src/cli/index.ts", "src/cli/commands/session/launch.ts", "src/cli/commands/session/connect.ts", "src/cli/commands/session/disconnect.ts", "src/cli/commands/status-capabilities.ts", "src/cli/commands/session/cookie-import.ts", "src/cli/commands/session/cookie-list.ts", "scripts/cli-smoke-test.mjs"],
+    commands: ["launch", "connect", "cdp-profile", "disconnect", "status", "status-capabilities", "cookie-import", "cookie-list"],
+    ownerFiles: ["src/cli/args.ts", "src/cli/index.ts", "src/cli/commands/session/launch.ts", "src/cli/commands/session/connect.ts", "src/cli/commands/session/cdp-profile.ts", "src/cli/commands/session/disconnect.ts", "src/cli/commands/status-capabilities.ts", "src/cli/commands/session/cookie-import.ts", "src/cli/commands/session/cookie-list.ts", "scripts/cli-smoke-test.mjs"],
     scenarioIds: ["feature.cli.smoke"]
   },
   {
@@ -125,7 +125,8 @@ const CLI_FAMILY_DEFINITIONS = [
       "workflow.shopping.run",
       "workflow.product_video.url",
       "workflow.product_video.name",
-      "workflow.inspiredesign.run"
+      "workflow.inspiredesign.run",
+      "workflow.inspiredesign.harvest"
     ]
   },
   {
@@ -231,7 +232,8 @@ const TOOL_FAMILY_DEFINITIONS = [
       "workflow.shopping.run",
       "workflow.product_video.url",
       "workflow.product_video.name",
-      "workflow.inspiredesign.run"
+      "workflow.inspiredesign.run",
+      "workflow.inspiredesign.harvest"
     ]
   },
   {
@@ -394,6 +396,70 @@ export const VALIDATION_SCENARIOS = [
       "src/tools/inspiredesign_run.ts",
       "src/inspiredesign/contract.ts",
       "src/providers/workflows.ts"
+    ]
+  },
+  {
+    id: "workflow.inspiredesign.harvest",
+    label: "Inspiredesign harvest workflow",
+    runner: "cli",
+    primaryArgs: [
+      "inspiredesign",
+      "harvest",
+      "--brief",
+      "Harvest public product landing inspiration into an authority-checked design packet.",
+      "--query",
+      "editorial product landing page minimal design",
+      "--provider",
+      "web/default",
+      "--max-references",
+      "3",
+      "--visual-evidence",
+      "required",
+      "--browser-mode",
+      "managed",
+      "--mode",
+      "compact",
+      "--timeout-ms",
+      "120000"
+    ],
+    secondaryArgs: [
+      "inspiredesign",
+      "harvest",
+      "--brief",
+      "Harvest manifest-backed Pinterest pin media from a managed profile without extension relay.",
+      "--query",
+      "Pinterest premium product landing page cinematic portfolio",
+      "--provider",
+      "social/pinterest",
+      "--max-references",
+      "3",
+      "--visual-evidence",
+      "required",
+      "--browser-mode",
+      "managed",
+      "--profile",
+      "pinterest-design",
+      "--use-cookies",
+      "--cookie-policy",
+      "required",
+      "--challenge-automation-mode",
+      "browser_with_helper",
+      "--mode",
+      "json",
+      "--timeout-ms",
+      "180000"
+    ],
+    timeoutMs: 180_000,
+    allowedStatuses: ["pass", "env_limited"],
+    executionPolicy: "automated",
+    entryPath: "opendevbrowser inspiredesign harvest",
+    primaryTask: "Harvest public visual references with managed mode and visual evidence requirements.",
+    secondaryTask: "Exercise managed-profile Pinterest harvest controls with cookies, required cookie policy, and browser-scoped challenge automation.",
+    ownerFiles: [
+      "src/cli/commands/inspiredesign.ts",
+      "src/providers/workflows.ts",
+      "src/providers/browser-native-discovery.ts",
+      "src/inspiredesign/pin-media-evidence.ts"
     ]
   },
   {
@@ -615,7 +681,8 @@ const CLI_FAMILY_LOOKUP = buildFamilyLookup(CLI_FAMILY_DEFINITIONS, "commands");
 const TOOL_FAMILY_LOOKUP = buildFamilyLookup(TOOL_FAMILY_DEFINITIONS, "members");
 const SCENARIO_LOOKUP = new Map(VALIDATION_SCENARIOS.map((scenario) => [scenario.id, scenario]));
 const CLI_COMMAND_SCENARIO_OVERRIDES = new Map([
-  ["connect", { scenarioIds: ["guarded.connect.remote"], executionPolicy: "guarded", ownerFiles: ["src/cli/commands/session/connect.ts", "src/tools/connect.ts"] }]
+  ["connect", { scenarioIds: ["guarded.connect.remote"], executionPolicy: "guarded", ownerFiles: ["src/cli/commands/session/connect.ts", "src/tools/connect.ts"] }],
+  ["cdp-profile", { scenarioIds: ["guarded.connect.remote"], executionPolicy: "guarded", ownerFiles: ["src/cli/commands/session/cdp-profile.ts", "src/browser/session-profile-registry.ts", "src/browser/browser-manager.ts"] }]
 ]);
 const TOOL_SCENARIO_OVERRIDES = new Map([
   ["opendevbrowser_connect", { scenarioIds: ["guarded.connect.remote"], executionPolicy: "guarded" }]

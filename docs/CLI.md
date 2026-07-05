@@ -153,7 +153,7 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 
 ### CLI command surface
 
-- Total commands: `77`.
+- Total commands: `78`.
 - Categories: install/runtime management, session/connection plus capability discovery, navigation plus desktop-assisted browser review, interaction plus low-level pointer control, targets/pages, DOM inspection, browser capture and replay, desktop observation, design canvas, export plus session-centric diagnostics and browser-scoped inspection, macro/annotation, and internal power (`rpc`).
 
 ### Tool surface
@@ -161,7 +161,7 @@ Canonical inventory document: `docs/SURFACE_REFERENCE.md`.
 - Total tools: `70` (`opendevbrowser_*`).
 - CLI-tool pairs: `67`.
 - Tool-only surface (no CLI equivalent): `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, `opendevbrowser_skill_load`.
-- CLI-only surface (no tool equivalent): `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `artifacts`, `rpc`.
+- CLI-only surface (no tool equivalent): `install`, `update`, `uninstall`, `help`, `version`, `serve`, `daemon`, `native`, `artifacts`, `cdp-profile`, `rpc`.
 
 ### Relay channel surface
 
@@ -463,6 +463,7 @@ Flags:
 - `--source-selection` (`auto|web|community|social|shopping|all`)
 - `--sources` (comma-separated concrete sources)
 - `--browser-mode` (`auto|extension|managed`)
+- `--profile` (named managed profile for provider browser fallback; explicit CDP profiles use `cdp-profile start` plus `connect --profile` for browser/session primitives)
 - `--mode` (`compact|json|md|context|path`)
 - `--include-engagement`
 - `--limit-per-source`
@@ -499,6 +500,7 @@ Flags:
 - `--budget`
 - `--region`
 - `--browser-mode` (`auto|extension|managed`)
+- `--profile` (named managed profile for provider browser fallback; explicit CDP profiles use `cdp-profile start` plus `connect --profile` for browser/session primitives)
 - `--sort` (`best_deal|lowest_price|highest_rating|fastest_shipping`)
 - `--mode` (`compact|json|md|context|path`)
 - `--timeout-ms`
@@ -539,6 +541,7 @@ Flags:
 - `--include-copy` (`true|false`; bare flag means `true`)
 - `--timeout-ms`
 - `--browser-mode` (`auto|extension|managed`)
+- `--profile` (named managed profile for provider browser fallback; explicit CDP profiles use `cdp-profile start` plus `connect --profile` for browser/session primitives)
 - `--output-dir`
 - `--ttl-hours`
 - `--use-cookies` (`true|false`; bare flag means `true`)
@@ -562,8 +565,8 @@ Notes:
 npx opendevbrowser inspiredesign run --brief "Synthesize a premium docs landing page from calm editorial references" --url https://stripe.com --url https://vercel.com
 npx opendevbrowser inspiredesign run --brief "Extract a reusable dashboard design contract from live references" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance
 npx opendevbrowser inspiredesign harvest --brief "Synthesize a premium docs workspace" --query "best docs product landing pages" --provider web/default --max-references 5 --visual-evidence required --browser-mode managed --mode json
-npx opendevbrowser inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
-npx opendevbrowser inspiredesign harvest --brief "Fashion design studio landing page with atelier motion references" --provider social/pinterest --url "https://www.pinterest.com/pin/27654985208435505/" --max-references 5 --visual-evidence required --browser-mode extension --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
+npx opendevbrowser inspiredesign harvest --brief "Premium digital photography studio landing page" --query "Pinterest premium digital photography studio landing page cinematic parallax portfolio" --provider social/pinterest --max-references 5 --visual-evidence required --browser-mode managed --profile pinterest-design --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
+npx opendevbrowser inspiredesign harvest --brief "Fashion design studio landing page with atelier motion references" --provider social/pinterest --url "https://www.pinterest.com/pin/27654985208435505/" --max-references 5 --visual-evidence required --browser-mode managed --profile pinterest-design --use-cookies --cookie-policy required --challenge-automation-mode browser_with_helper --mode json --output-format json
 ```
 
 Flags:
@@ -580,6 +583,7 @@ Flags:
 - `--output-dir`
 - `--ttl-hours`
 - `--browser-mode` (`auto|extension|managed`)
+- `--profile` (named managed profile for provider browser fallback; explicit CDP profiles use `cdp-profile start` plus `connect --profile` for browser/session primitives)
 - `--use-cookies` (`true|false`; bare flag means `true`)
 - `--challenge-automation-mode` (`off|browser|browser_with_helper`)
 - `--cookie-policy-override` (`off|auto|required`)
@@ -595,8 +599,8 @@ Notes:
 - Repeat `--url` for multiple inspiration sources. There is no `--urls` alias.
 - `harvest` merges explicit URLs before discovered URLs, trims and de-duplicates references, and stores rejected reference diagnostics in generated metadata.
 - Query-based Pinterest harvests become product-ready only through query-discovered canonical `/pin/{id}/` references plus manifest-backed first-party pin-media bytes. `discovery-diagnostics.json` records accepted and rejected URL counts, blocker diagnostics, and recovery actions; login/challenge and search-shell diagnostics are recovery paths, not product-ready evidence.
-- `social/pinterest` is a browser-native site recipe. Use it with extension mode, `--use-cookies`, and `--cookie-policy required` when the brief needs logged-in Pinterest search. Compatible Pinterest URL recovery can run as `--provider social/pinterest --url <pinterest-url>` without `--query`; generic provider plus URL recovery without a query remains rejected. Use one canonical `/pin/{id}/` URL per harvest when validating design-ready pin media. The workflow must recover session evidence first when Pinterest returns login, challenge, empty-grid, or search-shell states.
-- In extension mode, canonical Pinterest pin-media harvest opens the exact canonical pin in the extension before extracting persisted first-party bytes. This is the default product path for reliable image, GIF, and video pin media capture.
+- `social/pinterest` is a browser-native site recipe. For non-Google logged-in Pinterest search, prefer a dedicated managed headed profile with `--profile <name>`, `--use-cookies`, and `--cookie-policy required`; use extension `/ops` when you need live active-tab reuse. Registry-backed explicit CDP profiles are available for browser/session primitives through `cdp-profile start` plus `connect --profile`, but provider workflows do not yet expose an explicit-CDP transport selector. Compatible Pinterest URL recovery can run as `--provider social/pinterest --url <pinterest-url>` without `--query`; generic provider plus URL recovery without a query remains rejected. Use one canonical `/pin/{id}/` URL per harvest when validating design-ready pin media. The workflow must recover session evidence first when Pinterest returns login, challenge, empty-grid, or search-shell states.
+- Canonical Pinterest pin-media harvest opens the exact canonical pin in the active managed or extension workflow session before extracting persisted first-party bytes. Extension `/ops` remains the best live-tab reuse path, but it is no longer the only intended logged-in Pinterest lane.
 - Browser-native site recipes do not silently widen scope to unrelated providers. If fallback to broad web sources is desired, ask the user or rerun with an explicit `--provider web/default`.
 - `--include-prototype-guidance` appends prototype structure guidance to the generated design contract output.
 - Successful runs emit `advanced-brief.md`, `design-agent-handoff.json`, `visual-evidence.json`, `screenshot-index.json`, `motion-evidence.json`, `pin-media-evidence.json`, `pin-media-index.json`, `media-analysis.json`, `ranked-references.json`, `discovery-diagnostics.json` for query harvests, and `meta-prompt.md` alongside the existing design contract and implementation artifacts. `canvas-plan.request.json` is emitted only when `productSuccess=true` and `artifactAuthority=product_ready`. Harvest PNG files are written under `visual-evidence/<referenceId>/viewport.png`; motion replays, HTML previews, and preview PNGs are written under `motion-evidence/<referenceId>/` when video evidence is captured; persisted Pinterest pin media files are written under `pin-media-evidence/<referenceId>/main.*`, `pin-media-evidence/<referenceId>/video.mp4`, or `pin-media-evidence/<referenceId>/poster.*` when canonical pin media proof is captured.
@@ -715,6 +719,7 @@ npx opendevbrowser launch --wait-for-extension --wait-timeout-ms 30000
 npx opendevbrowser launch --google-auth-intent user-owned --extension-only --wait-for-extension
 npx opendevbrowser launch --no-extension --disable-system-cookie-bootstrap
 npx opendevbrowser launch --no-extension --allow-google-cookie-bootstrap
+npx opendevbrowser launch --no-extension --profile pinterest-design --start-url https://www.pinterest.com
 ```
 
 Flags:
@@ -738,6 +743,7 @@ Default behavior:
 - If the extension is not connected, launch fails with guidance and exact commands for the explicit alternatives.
 - Headless is never the default.
 - Extension headless is unsupported. `launch --headless` must be paired with `--no-extension`; extension-intent headless requests fail with `unsupported_mode`.
+- For non-Google login-required workflows, use a dedicated managed headed profile first: `launch --no-extension --profile <name> --start-url <site>`. This creates OpenDevBrowser-owned profile continuity without requiring the extension or automating the daily Chrome profile.
 - `--google-auth-intent user-owned` is for runs that must reuse a user-owned Google OAuth session. It requires extension `/ops` against the live Chrome profile and fails closed for `--no-extension`, `--headless`, `--extension-legacy`, and direct CDP.
 - When hub mode is enabled, there is no local relay fallback. If the hub is unavailable, commands fail with guidance.
 - Extension relay requires Chrome 125+ (flat CDP sessions).
@@ -776,12 +782,14 @@ Interactive vs non-interactive:
 ```bash
 npx opendevbrowser connect --ws-endpoint ws://127.0.0.1:9222/devtools/browser/...
 npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222
+npx opendevbrowser connect --profile pinterest-design
 npx opendevbrowser connect --google-auth-intent user-owned --ws-endpoint ws://127.0.0.1:8787/ops
 npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222 --disable-system-cookie-bootstrap
 npx opendevbrowser connect --host 127.0.0.1 --cdp-port 9222 --allow-google-cookie-bootstrap
 ```
 
 This command starts a `cdpConnect` session (attach to an existing Chrome with remote debugging enabled).
+Use `connect --profile <name>` only for a registry-backed OpenDevBrowser-owned CDP profile started with `cdp-profile start`; raw `--ws-endpoint` and host/port attach remain browser-control-only with unknown profile scope.
 If the `--ws-endpoint` points at the local relay (for example `ws://127.0.0.1:8787` or `ws://127.0.0.1:8787/ops`),
 the CLI will normalize to `/ops` and route through the extension relay (`extension` mode).
 Use `--extension-legacy` if you need the legacy `/cdp` relay path.
@@ -790,6 +798,17 @@ the `/ops` or `/cdp` connection. Direct relay websocket connections without a to
 Direct `cdpConnect` sessions use the same best-effort Chrome-family cookie bootstrap path as managed launches.
 `--google-auth-intent user-owned` requires extension `/ops` and fails closed for direct CDP and `--extension-legacy`.
 Use `--disable-system-cookie-bootstrap` when a managed or direct `cdpConnect` run should not copy readable system Chrome-family cookies. Use `--allow-google-cookie-bootstrap` only when a diagnostic run explicitly accepts importing Google-sensitive cookies. Copied cookies are not Google auth proof.
+
+### CDP profile
+
+```bash
+npx opendevbrowser cdp-profile start --profile pinterest-design --start-url https://www.pinterest.com
+npx opendevbrowser connect --profile pinterest-design
+npx opendevbrowser cdp-profile status --profile pinterest-design
+npx opendevbrowser cdp-profile stop --profile pinterest-design
+```
+
+`cdp-profile` starts Chrome with an OpenDevBrowser-owned non-default user data directory and local remote-debugging endpoint. It refuses the `default` profile name, stores only sanitized profile provenance, and strips raw websocket endpoints from command output. Use it when a workflow needs direct CDP without the extension and without touching the user's daily Chrome profile. Stop only closes OpenDevBrowser-owned launches with matching live ownership.
 
 ### Relay binding queue
 
@@ -851,17 +870,18 @@ Notes:
 ```bash
 npx opendevbrowser cookie-import \
   --session-id <session-id> \
-  --cookies '[{"name":"session","value":"abc123","url":"https://example.com"}]'
-
-npx opendevbrowser cookie-import \
-  --session-id <session-id> \
   --cookies-file ./cookies.json \
   --strict=false \
   --request-id req-cookie-001
+
+npx opendevbrowser cookie-import \
+  --session-id <session-id> \
+  --cookies '[{"name":"synthetic-test-cookie","value":"fixture","url":"https://example.test"}]'
 ```
 
 Notes:
-- Provide exactly one cookies source: `--cookies` or `--cookies-file`.
+- Prefer `--cookies-file` for real cookies. Inline `--cookies` can leak through shell history and process arguments, so reserve it for non-sensitive synthetic tests.
+- Provide exactly one cookies source: `--cookies-file` or `--cookies`.
 - `--strict` defaults to `true`.
 - Managed and `cdpConnect` sessions already attempt Chrome-family cookie bootstrap on session creation; use `cookie-import` when you need to add or override cookies explicitly.
 - Supported across `managed`, default extension `/ops`, extension legacy `/cdp`, and direct `cdpConnect` sessions.
@@ -1664,11 +1684,12 @@ Notes:
 | `--extension-legacy` | `launch`, `connect` | Use legacy extension relay (`/cdp`) |
 | `--wait-for-extension` | `launch` | Wait for extension handshake |
 | `--wait-timeout-ms` | `launch` | Max wait for extension handshake |
+| `--profile` | `launch`, `run`, `connect`, `cdp-profile` | Named managed profile for launch/run, or registry-backed explicit CDP profile for connect and cdp-profile |
 | `--google-auth-intent` | `launch`, `connect` | `user-owned` requires extension `/ops` for user-owned Google OAuth continuity and fails closed for managed, headless, legacy `/cdp`, and direct CDP |
 | `--disable-system-cookie-bootstrap` | `launch`, `connect` | Skip managed or direct `cdpConnect` readable system cookie bootstrap for this run |
 | `--allow-google-cookie-bootstrap` | `launch`, `connect` | Diagnostic override to explicitly include Google-sensitive cookies in managed or direct `cdpConnect` bootstrap |
-| `--cookies` | `cookie-import` | Inline JSON array of cookie objects |
-| `--cookies-file` | `cookie-import` | Path to JSON file containing cookie objects |
+| `--cookies-file` | `cookie-import` | Path to JSON file containing cookie objects; preferred for real cookies |
+| `--cookies` | `cookie-import` | Inline JSON array for non-sensitive synthetic tests only because shell history and process arguments can expose values |
 | `--strict` | `cookie-import` | Reject on invalid cookie entries (`true`/`false`) |
 | `--request-id` | `cookie-import`, `cookie-list`, `debug-trace-snapshot`, `session-inspector`, `session-inspector-audit` | Optional request correlation id |
 | `--expression` | `macro-resolve` | Macro expression to resolve |
@@ -1676,11 +1697,12 @@ Notes:
 | `--include-catalog` | `macro-resolve` | Include macro catalog in response |
 | `--execute` | `macro-resolve` | Execute the resolved provider action and include additive `meta.*` fields |
 | `--timeout-ms` | `macro-resolve` | Client-side daemon call timeout in ms |
-| `--browser-mode` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `macro-resolve --execute` | Provider browser transport mode (`auto|extension|managed`); `extension` reuses relay-backed browser state, `managed` runs a deterministic managed browser |
-| `--use-cookies` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `macro-resolve --execute` | Enable/disable provider cookie injection for the run (`true|false`; bare flag means `true`) |
-| `--challenge-automation-mode` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `macro-resolve --execute`, `status-capabilities`, `session-inspector-plan`, `session-inspector-audit` | Per-run or inspection challenge automation override stored as `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence |
-| `--cookie-policy-override` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `macro-resolve --execute` | Per-run provider cookie policy override (`off|auto|required`) |
-| `--cookie-policy` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `macro-resolve --execute` | Alias of `--cookie-policy-override` |
+| `--browser-mode` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `inspiredesign harvest`, `macro-resolve --execute` | Provider browser transport mode (`auto|extension|managed`); `extension` reuses relay-backed browser state, `managed` runs a deterministic managed browser |
+| `--use-cookies` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `inspiredesign harvest`, `macro-resolve --execute` | Enable/disable provider cookie injection for the run (`true|false`; bare flag means `true`) |
+| `--profile` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `inspiredesign harvest` | Named managed profile for provider workflow fallback; profile names are launch preference until trusted provenance verifies continuity |
+| `--challenge-automation-mode` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `inspiredesign harvest`, `macro-resolve --execute`, `status-capabilities`, `session-inspector-plan`, `session-inspector-audit` | Per-run or inspection challenge automation override stored as `challengeAutomationMode` (`off|browser|browser_with_helper`) with `run > session > config` precedence |
+| `--cookie-policy-override` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `inspiredesign harvest`, `macro-resolve --execute` | Per-run provider cookie policy override (`off|auto|required`) |
+| `--cookie-policy` | `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `inspiredesign harvest`, `macro-resolve --execute` | Alias of `--cookie-policy-override` |
 
 **Browser launch (launch/run)**
 

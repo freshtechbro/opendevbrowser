@@ -269,11 +269,11 @@ describe("cli help parity", () => {
       "--disable-system-cookie-bootstrap",
       "--allow-google-cookie-bootstrap"
     ]));
-    expect(COMMAND_HELP_DETAILS.research.flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours", "--browser-mode"]));
+    expect(COMMAND_HELP_DETAILS.research.flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours", "--browser-mode", "--profile"]));
     expect(COMMAND_HELP_DETAILS.research.examples[0]).toContain("research run");
-    expect(COMMAND_HELP_DETAILS.shopping.flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours"]));
+    expect(COMMAND_HELP_DETAILS.shopping.flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours", "--profile"]));
     expect(COMMAND_HELP_DETAILS.shopping.examples[0]).toContain("shopping run");
-    expect(COMMAND_HELP_DETAILS["product-video"].flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours", "--browser-mode"]));
+    expect(COMMAND_HELP_DETAILS["product-video"].flags).toEqual(expect.arrayContaining(["--output-dir", "--ttl-hours", "--browser-mode", "--profile"]));
     expect(COMMAND_HELP_DETAILS["product-video"].examples[0]).toContain("product-video run");
     expect(COMMAND_HELP_DETAILS.inspiredesign.flags).toEqual(expect.arrayContaining([
       "--brief",
@@ -284,7 +284,8 @@ describe("cli help parity", () => {
       "--visual-evidence",
       "--capture-mode",
       "--include-prototype-guidance",
-      "--browser-mode"
+      "--browser-mode",
+      "--profile"
     ]));
     expect(COMMAND_HELP_DETAILS.inspiredesign.examples[0]).toContain("inspiredesign run");
     expect(COMMAND_HELP_DETAILS.inspiredesign.examples[1]).toContain("inspiredesign harvest");

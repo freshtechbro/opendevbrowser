@@ -1365,13 +1365,18 @@ export const createBrowserFallbackPort = (
               navigatedDuringAttach = Boolean(attachOptions.startUrl);
             }
           } else {
+            const managedProfile = runtimePolicy.auth.recommendedMode === "managed_headed"
+              ? runtimePolicy.auth.profileId
+              : undefined;
             const launched = await runSessionStartWithinFallbackDeadline("launch", async () => manager.launch({
               noExtension: true,
               headless: false,
               startUrl: "about:blank",
-              persistProfile: false,
+              persistProfile: Boolean(managedProfile),
+              ...(managedProfile ? { profile: managedProfile } : {}),
               ...(request.source === "shopping" ? { flags: SHOPPING_FALLBACK_FLAGS } : {})
             }));
+            authProvenance = launched.diagnostics?.authProvenance;
             sessionId = launched.sessionId;
           }
           if (sessionId) {
@@ -1907,7 +1912,11 @@ export const __test__ = {
   cookieDiagnosticsMessage,
   createFallbackChallengeRuntimeHandle,
   didShoppingAttachReachEquivalentPath,
+  fallbackPublicUrl,
   fallbackDetailsMessage,
+  isFallbackCaptureStable,
   isRestrictedExtensionAttachUrl,
-  providerCookieImportProvenance
+  isTransientFallbackCaptureError,
+  providerCookieImportProvenance,
+  readClonePageHtml
 };

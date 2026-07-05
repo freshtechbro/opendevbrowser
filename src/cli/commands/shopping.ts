@@ -14,6 +14,7 @@ type ShoppingCommandArgs = {
   budget?: number;
   region?: string;
   browserMode?: WorkflowBrowserMode;
+  profile?: string;
   sort?: "best_deal" | "lowest_price" | "highest_rating" | "fastest_shipping";
   mode?: "compact" | "json" | "md" | "context" | "path";
   timeoutMs?: number;
@@ -123,6 +124,16 @@ const parseShoppingRunArgs = (rawArgs: string[]): ShoppingCommandArgs => {
         throw createUsageError(`Invalid --browser-mode: ${value}`);
       }
       parsed.browserMode = value as WorkflowBrowserMode;
+      continue;
+    }
+
+    if (arg === "--profile") {
+      parsed.profile = requireValue(rawArgs, index, "--profile");
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--profile=")) {
+      parsed.profile = arg.split("=", 2)[1];
       continue;
     }
 
@@ -258,6 +269,7 @@ export async function runShoppingCommand(args: ParsedArgs) {
     budget: parsed.budget,
     region: parsed.region,
     browserMode: parsed.browserMode,
+    profile: parsed.profile,
     sort: parsed.sort,
     mode: parsed.mode ?? "compact",
     timeoutMs: parsed.timeoutMs ?? DEFAULT_WORKFLOW_TRANSPORT_TIMEOUT_MS,

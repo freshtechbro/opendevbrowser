@@ -77,6 +77,16 @@ function extractBacktickedNamesFromDocSection(source, startHeading, endHeading, 
   return [...section.matchAll(/^- `([^`]+)`(?:[^\n]*)$/gm)].map((match) => match[1]);
 }
 
+function extractBacktickedNamesFromInlineListSection(source, startHeading, endHeading, label) {
+  const start = source.indexOf(startHeading);
+  if (start < 0) {
+    throw new Error(`Unable to locate ${label} start heading.`);
+  }
+  const end = source.indexOf(endHeading, start);
+  const section = source.slice(start, end >= 0 ? end : undefined);
+  return [...section.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
+}
+
 function normalizeWorkflowSurfaceMap(source) {
   return source.trim().replace(/^Last updated: .+$/m, "Last updated: <normalized-date>");
 }
@@ -90,6 +100,7 @@ export function runDocsDriftChecks() {
 
   const cliDoc = read("docs/CLI.md");
   const publicReadme = read("README.md");
+  const publicSurfaceManifest = JSON.parse(read("src/public-surface/generated-manifest.json"));
   const docsReadme = read("docs/README.md");
   const onboardingDoc = read("docs/FIRST_RUN_ONBOARDING.md");
   const releaseRunbook = read("docs/RELEASE_RUNBOOK.md");
@@ -231,6 +242,37 @@ export function runDocsDriftChecks() {
     id: "doc.cli.tool_count_matches_source",
     ok: cliToolsCount === toolCount,
     detail: `docs/CLI.md tool count=${cliToolsCount}, source=${toolCount}`
+  });
+  const readmeSessionConnectionRow = publicReadme.match(/\| Session\/connection \|([^|\n]+)\|/);
+  checks.push({
+    id: "doc.readme.session_connection_category_includes_cdp_profile",
+    ok: commandNames.includes("cdp-profile")
+      && readmeSessionConnectionRow?.[1]?.includes("`cdp-profile`") === true,
+    detail: "README.md Session/connection category must include the generated cdp-profile command."
+  });
+  const cliOnlySurfaceLine = cliDoc.match(/^- CLI-only surface \(no tool equivalent\): ([^\n]+)$/m);
+  checks.push({
+    id: "doc.cli.cli_only_surface_includes_cdp_profile",
+    ok: commandNames.includes("cdp-profile")
+      && cliOnlySurfaceLine?.[1]?.includes("`cdp-profile`") === true,
+    detail: "docs/CLI.md CLI-only surface summary must include the generated cdp-profile command."
+  });
+  const profileWorkflowCommandDocs = new Map([
+    ["research", ["research run"]],
+    ["shopping", ["shopping run"]],
+    ["product-video", ["product-video run"]],
+    ["inspiredesign", ["inspiredesign run", "inspiredesign harvest"]]
+  ]);
+  const profileWorkflowCommands = publicSurfaceManifest.cli.commands
+    .filter((command) => profileWorkflowCommandDocs.has(command.name))
+    .filter((command) => Array.isArray(command.flags) && command.flags.includes("--profile"))
+    .flatMap((command) => profileWorkflowCommandDocs.get(command.name));
+  const workflowProfileRow = cliDoc.match(/\| `--profile` \|([^|\n]+)\| Named managed profile for provider workflow fallback;/);
+  checks.push({
+    id: "doc.cli.provider_workflow_profile_flags_match_manifest",
+    ok: profileWorkflowCommands.length === 5
+      && profileWorkflowCommands.every((commandName) => workflowProfileRow?.[1]?.includes(`\`${commandName}\``) === true),
+    detail: `docs/CLI.md provider workflow --profile row must include generated workflow commands: ${profileWorkflowCommands.join(", ")}`
   });
   checks.push({
     id: "doc.cli.inspiredesign_workflow_documented",
@@ -734,6 +776,14 @@ export function runDocsDriftChecks() {
   const commandChannelCliToolPairCount = parseDocCount(/- CLI-tool pairs: `([0-9]+)`/, commandChannelReference, "best-practices CLI-tool pair count");
   const commandChannelOpsCount = parseDocCount(/- `\/ops` command names: `([0-9]+)`/, commandChannelReference, "best-practices /ops count");
   const commandChannelCanvasCount = parseDocCount(/- `\/canvas` command names: `([0-9]+)`/, commandChannelReference, "best-practices /canvas count");
+  const commandChannelCliSurfaceNames = extractBacktickedNamesFromInlineListSection(
+    commandChannelReference,
+    "## CLI surface categories",
+    "## Tool surface categories",
+    "best-practices command-channel CLI categories"
+  );
+  const commandChannelCliCommandSet = new Set(commandChannelCliSurfaceNames.filter((name) => commandNames.includes(name)));
+  const commandChannelMissingCliCommands = commandNames.filter((name) => !commandChannelCliCommandSet.has(name));
   checks.push({
     id: "skill.command_channel_reference.surface_counts_match_source",
     ok: commandChannelCliCount === commandCount
@@ -742,6 +792,11 @@ export function runDocsDriftChecks() {
       && commandChannelOpsCount === opsCommandCount
       && commandChannelCanvasCount === canvasCommandCount,
     detail: `command-channel-reference counts cli=${commandChannelCliCount}/${commandCount}, tools=${commandChannelToolCount}/${toolCount}, cliToolPairs=${commandChannelCliToolPairCount}/${cliToolPairCount}, ops=${commandChannelOpsCount}/${opsCommandCount}, canvas=${commandChannelCanvasCount}/${canvasCommandCount}`
+  });
+  checks.push({
+    id: "skill.command_channel_reference.cli_inventory_matches_source",
+    ok: commandChannelMissingCliCommands.length === 0,
+    detail: `command-channel-reference missing CLI commands: ${commandChannelMissingCliCommands.join(", ") || "none"}`
   });
   checks.push({
     id: "skill.parity_gates.replay_and_desktop_observation_documented",

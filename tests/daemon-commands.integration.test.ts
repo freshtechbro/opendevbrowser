@@ -826,7 +826,7 @@ describe("daemon-commands integration", () => {
     expect(getScreencastOwner("cast-1")).toBeNull();
   });
 
-  it("routes session.inspect through the daemon with default includeUrls and relay status", async () => {
+  it("routes session.inspect through the daemon with redacted default URLs and relay status", async () => {
     const core = makeCore({
       relayStatus: {
         running: true,
@@ -892,7 +892,7 @@ describe("daemon-commands integration", () => {
     };
 
     expect(createSessionInspector).toHaveBeenCalledTimes(1);
-    expect(inspector.listTargets).toHaveBeenCalledWith("session-1", true);
+    expect(inspector.listTargets).toHaveBeenCalledWith("session-1", false);
     expect(inspector.debugTraceSnapshot).toHaveBeenCalledWith("session-1", {
       sinceConsoleSeq: 4,
       sinceNetworkSeq: 5,
@@ -1395,6 +1395,35 @@ describe("daemon-commands integration", () => {
     }));
   });
 
+  it("routes user-owned Google connect only through extension /ops", async () => {
+    const core = makeCore();
+    core.manager.connectRelay.mockResolvedValue({
+      sessionId: "session-google-ops",
+      mode: "extension",
+      activeTargetId: "target-1",
+      warnings: [],
+      wsEndpoint: "ws://127.0.0.1:8787/ops",
+      leaseId: "lease-google-ops"
+    });
+
+    const response = await handleDaemonCommand(core, {
+      name: "session.connect",
+      params: {
+        clientId: "client-google-ops",
+        wsEndpoint: "ws://127.0.0.1:8787/ops",
+        googleAuthIntent: "user_owned_google"
+      }
+    });
+
+    expect(core.manager.connectRelay).toHaveBeenCalledWith("ws://127.0.0.1:8787/ops", {
+      googleAuthIntent: "user_owned_google"
+    });
+    expect(response).toEqual(expect.objectContaining({
+      sessionId: "session-google-ops",
+      leaseId: "lease-google-ops"
+    }));
+  });
+
   it("rejects explicit /cdp relay endpoints without extensionLegacy", async () => {
     const core = makeCore();
 
@@ -1439,6 +1468,109 @@ describe("daemon-commands integration", () => {
       sessionId: "session-cdp-start",
       mode: "extension"
     }));
+  });
+
+  it("routes registry-backed CDP profile connects to direct manager connect", async () => {
+    const core = makeCore();
+    const relay = core.relay as unknown as {
+      getOpsUrl: ReturnType<typeof vi.fn>;
+    };
+    relay.getOpsUrl = vi.fn(() => "ws://127.0.0.1:8787/ops");
+    core.manager.connect.mockResolvedValue({
+      sessionId: "session-cdp-profile",
+      mode: "cdpConnect",
+      activeTargetId: "target-cdp-profile",
+      warnings: [],
+      wsEndpoint: "ws://127.0.0.1:9333/devtools/browser/private-id"
+    });
+
+    const response = await handleDaemonCommand(core, {
+      name: "session.connect",
+      params: {
+        clientId: "client-cdp-profile",
+        profile: "odb-cdp-smoke",
+        startUrl: "https://example.com"
+      }
+    });
+
+    expect(core.manager.connectRelay).not.toHaveBeenCalled();
+    expect(core.manager.connect).toHaveBeenCalledWith({
+      wsEndpoint: undefined,
+      host: undefined,
+      port: undefined,
+      profile: "odb-cdp-smoke",
+      startUrl: "https://example.com",
+      googleAuthIntent: "none",
+      disableSystemCookieBootstrap: undefined,
+      allowGoogleCookieBootstrap: undefined
+    });
+    expect(response).toEqual(expect.objectContaining({
+      sessionId: "session-cdp-profile",
+      mode: "cdpConnect"
+    }));
+    expect(JSON.stringify(response)).not.toContain("private-id");
+    expect(response).not.toHaveProperty("wsEndpoint");
+  });
+
+  it("rejects registry profiles for user-owned Google auth before manager connect", async () => {
+    const core = makeCore();
+    const relay = core.relay as unknown as {
+      getOpsUrl: ReturnType<typeof vi.fn>;
+    };
+    relay.getOpsUrl = vi.fn(() => "ws://127.0.0.1:8787/ops");
+
+    await expect(handleDaemonCommand(core, {
+      name: "session.connect",
+      params: {
+        clientId: "client-google-profile",
+        googleAuthIntent: "user_owned_google",
+        profile: "work-google"
+      }
+    })).rejects.toThrow("requires the extension /ops relay");
+
+    expect(core.manager.connectRelay).not.toHaveBeenCalled();
+    expect(core.manager.connect).not.toHaveBeenCalled();
+  });
+
+  it("redacts raw CDP endpoint fields from daemon connect responses", async () => {
+    const core = makeCore();
+    const relay = core.relay as unknown as {
+      getOpsUrl: ReturnType<typeof vi.fn>;
+    };
+    relay.getOpsUrl = vi.fn(() => "ws://127.0.0.1:8787/ops");
+    core.manager.connect.mockResolvedValue({
+      sessionId: "session-raw-cdp",
+      mode: "cdpConnect",
+      activeTargetId: "target-raw-cdp",
+      warnings: [],
+      wsEndpoint: "ws://127.0.0.1:9333/devtools/browser/private-id"
+    });
+
+    const response = await handleDaemonCommand(core, {
+      name: "session.connect",
+      params: {
+        clientId: "client-raw-cdp",
+        wsEndpoint: "ws://127.0.0.1:9333/devtools/browser/private-id"
+      }
+    });
+
+    expect(core.manager.connectRelay).not.toHaveBeenCalled();
+    expect(core.manager.connect).toHaveBeenCalledWith({
+      wsEndpoint: "ws://127.0.0.1:9333/devtools/browser/private-id",
+      host: undefined,
+      port: undefined,
+      profile: undefined,
+      startUrl: undefined,
+      googleAuthIntent: "none",
+      disableSystemCookieBootstrap: undefined,
+      allowGoogleCookieBootstrap: undefined
+    });
+    expect(response).toEqual(expect.objectContaining({
+      sessionId: "session-raw-cdp",
+      mode: "cdpConnect"
+    }));
+    expect(JSON.stringify(response)).not.toContain("private-id");
+    expect(response).not.toHaveProperty("wsEndpoint");
   });
 
   it("rejects non-legacy extension connect results that do not return a lease", async () => {
@@ -2491,6 +2623,81 @@ describe("daemon-commands integration", () => {
       expect.objectContaining({
         output_dir: "custom-product-output"
       }),
+      expect.any(Object)
+    );
+  });
+
+  it("forwards provider workflow profile names through the daemon router", async () => {
+    const core = makeCore();
+    const researchSpy = vi.spyOn(workflowModule, "runResearchWorkflow").mockResolvedValue({
+      records: [],
+      meta: {}
+    });
+    const shoppingSpy = vi.spyOn(workflowModule, "runShoppingWorkflow").mockResolvedValue({
+      mode: "json",
+      offers: [],
+      meta: {}
+    } as never);
+    const inspiredesignSpy = vi.spyOn(workflowModule, "runInspiredesignWorkflow").mockResolvedValue({
+      mode: "json",
+      designContract: {},
+      meta: {}
+    });
+    const productVideoSpy = vi.spyOn(workflowModule, "runProductVideoWorkflow").mockResolvedValue({
+      artifact_path: "/tmp/product-video",
+      manifest: {},
+      product: {},
+      pricing: {},
+      screenshots: [],
+      images: [],
+      meta: {}
+    });
+
+    await handleDaemonCommand(core, {
+      name: "research.run",
+      params: {
+        topic: "Profile Research",
+        profile: "pinterest-design"
+      }
+    });
+    await handleDaemonCommand(core, {
+      name: "shopping.run",
+      params: {
+        query: "Profile Shopping",
+        profile: "shopping-login"
+      }
+    });
+    await handleDaemonCommand(core, {
+      name: "inspiredesign.run",
+      params: {
+        brief: "Profile Design",
+        profile: "pinterest-design"
+      }
+    });
+    await handleDaemonCommand(core, {
+      name: "product.video.run",
+      params: {
+        product_name: "Profile Product",
+        profile: "product-login"
+      }
+    });
+
+    expect(researchSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ profile: "pinterest-design" })
+    );
+    expect(shoppingSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ profile: "shopping-login" })
+    );
+    expect(inspiredesignSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ profile: "pinterest-design" }),
+      expect.any(Object)
+    );
+    expect(productVideoSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ profile: "product-login" }),
       expect.any(Object)
     );
   });

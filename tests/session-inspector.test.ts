@@ -14,30 +14,128 @@ import type { RelayStatus } from "../src/relay/relay-server";
 type InspectorStatus = Awaited<ReturnType<SessionInspectorHandle["status"]>>;
 type InspectorTargets = Awaited<ReturnType<SessionInspectorHandle["listTargets"]>>;
 type InspectorTrace = Awaited<ReturnType<SessionInspectorHandle["debugTraceSnapshot"]>>;
+type InspectorTraceFixture = Record<string, unknown>;
+type InspectorTraceChannelInput = {
+  events?: unknown[];
+  nextSeq?: number;
+  truncated?: boolean;
+};
+type InspectorTraceInput = {
+  requestId?: string;
+  generatedAt?: string;
+  page?: Record<string, unknown>;
+  channels?: {
+    console?: InspectorTraceChannelInput;
+    network?: InspectorTraceChannelInput;
+    exception?: InspectorTraceChannelInput;
+  };
+  fingerprint?: InspectorTrace["fingerprint"];
+  meta?: Record<string, unknown>;
+};
 
-const makeRelayStatus = (overrides: Partial<RelayStatus> = {}): RelayStatus => ({
-  running: true,
-  extensionConnected: false,
-  extensionHandshakeComplete: true,
-  annotationConnected: false,
-  opsConnected: true,
-  canvasConnected: false,
-  cdpConnected: false,
-  pairingRequired: false,
-  health: {
-    ok: true,
-    challengeState: "clear",
-    blockedSessions: [],
-    waitingForExtension: false,
-    actionable: []
+const makeTrace = (input: InspectorTraceInput = {}): InspectorTraceFixture => ({
+  requestId: input.requestId ?? "trace-default",
+  generatedAt: input.generatedAt ?? "2026-04-03T00:00:00.000Z",
+  page: {
+    mode: "managed",
+    activeTargetId: "target-1",
+    ...input.page
   },
-  ...overrides
+  channels: {
+    console: {
+      events: [],
+      nextSeq: 0,
+      truncated: false,
+      ...input.channels?.console
+    },
+    network: {
+      events: [],
+      nextSeq: 0,
+      truncated: false,
+      ...input.channels?.network
+    },
+    exception: {
+      events: [],
+      nextSeq: 0,
+      truncated: false,
+      ...input.channels?.exception
+    }
+  },
+  fingerprint: input.fingerprint ?? {
+    tier1: {
+      ok: true,
+      warnings: [],
+      issues: []
+    },
+    tier2: {
+      enabled: false,
+      mode: "off",
+      profileId: "default",
+      healthScore: 1,
+      challengeCount: 0,
+      rotationCount: 0,
+      lastRotationTs: 0,
+      lastAppliedNetworkSeq: 0,
+      recentChallenges: []
+    },
+    tier3: {
+      enabled: false,
+      status: "active",
+      adapterName: "none",
+      fallbackTier: "tier1",
+      canary: {
+        level: 0,
+        averageScore: 0,
+        lastAction: "none",
+        sampleCount: 0
+      }
+    }
+  },
+  ...(input.meta ? { meta: input.meta } : {})
 });
+
+type RelayStatusInput = Partial<Omit<RelayStatus, "health">> & {
+  health?: Partial<RelayStatus["health"]>;
+};
+
+const makeRelayStatus = (overrides: RelayStatusInput = {}): RelayStatus => {
+  const defaultHealth: RelayStatus["health"] = {
+    ok: true,
+    reason: "ok",
+    extensionConnected: false,
+    extensionHandshakeComplete: true,
+    cdpConnected: false,
+    annotationConnected: false,
+    opsConnected: true,
+    opsOwnedTargetCount: 0,
+    canvasConnected: false,
+    pairingRequired: false
+  };
+
+  return {
+    running: true,
+    extensionConnected: false,
+    extensionHandshakeComplete: true,
+    annotationConnected: false,
+    opsConnected: true,
+    opsOwnedTargetCount: 0,
+    canvasConnected: false,
+    cdpConnected: false,
+    pairingRequired: false,
+    instanceId: "relay-test-instance",
+    epoch: 1,
+    ...overrides,
+    health: {
+      ...defaultHealth,
+      ...overrides.health
+    }
+  };
+};
 
 const makeHandle = (options: {
   session?: Partial<InspectorStatus>;
   targets?: Partial<InspectorTargets>;
-  trace?: InspectorTrace;
+  trace?: InspectorTraceFixture;
 } = {}) => {
   const session: InspectorStatus = {
     sessionId: "session-1",
@@ -65,18 +163,26 @@ const makeHandle = (options: {
     ...options.targets
   } as InspectorTargets;
 
-  const trace: InspectorTrace = options.trace ?? ({
-    channels: {},
-    meta: {},
-    page: {}
-  } as InspectorTrace);
+  const trace = options.trace ?? makeTrace();
 
   const handle: SessionInspectorHandle = {
     status: vi.fn(async () => session),
-    listTargets: vi.fn(async () => targets),
+    listTargets: vi.fn(async (_sessionId: string, includeUrls = false) => {
+      if (includeUrls) {
+        return targets;
+      }
+      return {
+        ...targets,
+        targets: targets.targets.map((target) => {
+          const redacted = { ...target };
+          delete (redacted as { url?: string }).url;
+          return redacted;
+        })
+      };
+    }),
     consolePoll: vi.fn(async () => ({ events: [], nextSeq: 0 })),
     networkPoll: vi.fn(async () => ({ events: [], nextSeq: 0 })),
-    debugTraceSnapshot: vi.fn(async () => trace)
+    debugTraceSnapshot: vi.fn(async () => trace as InspectorTrace)
   };
 
   return { handle, session, targets, trace };
@@ -204,7 +310,7 @@ describe("inspectSession", () => {
       relayStatus
     });
 
-    expect(handle.listTargets).toHaveBeenCalledWith("session-1", true);
+    expect(handle.listTargets).toHaveBeenCalledWith("session-1", false);
     expect(handle.debugTraceSnapshot).toHaveBeenCalledWith("session-1", {
       sinceConsoleSeq: undefined,
       sinceNetworkSeq: undefined,
@@ -236,8 +342,8 @@ describe("inspectSession", () => {
       failureCount: 3,
       latestFailures: [
         { error: "dns" },
-        { error: "timeout", method: "PUT", url: "https://trace.example/fail-2" },
-        { status: 500, method: "GET", url: "https://trace.example/fail-1" }
+        { error: "timeout", method: "PUT", url: "https://trace.example/[redacted]" },
+        { status: 500, method: "GET", url: "https://trace.example/[redacted]" }
       ]
     });
     expect(result.proofArtifact).toEqual({
@@ -245,7 +351,7 @@ describe("inspectSession", () => {
       requestId: "trace-1",
       generatedAt: "2026-04-03T20:00:00.000Z",
       blockerState: "clear",
-      url: "https://trace.example/path",
+      url: "https://trace.example/[redacted]",
       title: "Trace Title"
     });
     expect(result.healthState).toBe("warning");
@@ -307,13 +413,113 @@ describe("inspectSession", () => {
       requestId: "fallback-req",
       generatedAt: null,
       blockerState: "resolving",
-      url: session.url,
+      url: "https://session.example/[redacted]",
       title: session.title
     });
     expect(result.healthState).toBe("ok");
     expect(result.suggestedNextAction).toBe(
       "Capture snapshot or review and continue the normal snapshot -> action -> snapshot loop."
     );
+  });
+
+  it("summarizes sanitized session capability diagnostics", async () => {
+    const { handle } = makeHandle({
+      session: {
+        mode: "cdpConnect",
+        diagnostics: {
+          authProvenance: {
+            googleAuthIntent: "none",
+            profileSource: "cdp_connected_profile",
+            profile: {
+              profileId: "pinterest-work",
+              displayName: "Pinterest Work",
+              kind: "explicit_cdp_profile",
+              scope: "explicit_local_cdp",
+              browserFamily: "chromium",
+              persistent: true,
+              headless: false,
+              authCapability: "explicit_cdp_profile",
+              authProof: "profile_declared",
+              pathHash: "abc123",
+              endpoint: { host: "127.0.0.1", port: 9222 },
+              lease: {
+                acquiredAt: "2026-07-04T00:00:00.000Z",
+                lastSeenAt: "2026-07-04T00:00:01.000Z",
+                active: true
+              }
+            },
+            cookieBootstrap: {
+              attempted: true,
+              disabled: false,
+              importedCount: 2,
+              rejectedCount: 1,
+              skippedGoogleSensitiveCount: 3,
+              googleSensitiveCookiePolicy: "skip",
+              sourceBrowserName: "Chrome"
+            }
+          }
+        }
+      },
+      targets: {
+        activeTargetId: "target-1",
+        targets: [
+          { targetId: "target-1", type: "page", title: "Root" },
+          {
+            targetId: "target-2",
+            type: "page",
+            title: "Account chooser",
+            openerTargetId: "target-1",
+            ownershipSource: "action_sync",
+            popupKind: "oauth_or_account_chooser",
+            safeUrlSummary: {
+              scheme: "https",
+              host: "accounts.example.com",
+              origin: "https://accounts.example.com"
+            }
+          }
+        ]
+      }
+    });
+
+    const result = await inspectSession(handle, {
+      sessionId: "session-capabilities",
+      relayStatus: makeRelayStatus({
+        extensionConnected: false,
+        opsConnected: false,
+        cdpConnected: true
+      })
+    });
+
+    expect(result.capabilities.transport).toEqual({
+      mode: "cdpConnect",
+      boundary: "explicit_local_cdp",
+      extensionRelay: false,
+      opsRelay: false,
+      relayCdp: true,
+      directCdp: true,
+      managed: false,
+      liveActiveTabReuse: "extension_ops_required"
+    });
+    expect(result.capabilities.profile).toMatchObject({
+      source: "cdp_connected_profile",
+      kind: "explicit_cdp_profile",
+      scope: "explicit_local_cdp",
+      persistent: true,
+      headless: false,
+      authCapability: "explicit_cdp_profile",
+      authProof: "profile_declared",
+      leaseActive: true,
+      pathHashPresent: true
+    });
+    expect(result.capabilities.auth).toMatchObject({
+      googleUserOwnedAuth: "extension_ops_required",
+      cookieContinuityIsLoginProof: false,
+      providerVerified: false,
+      explicitCookieImportAttempted: false
+    });
+    expect(result.capabilities.browserPrimitives.popupOwnershipMetadata).toBe("observed");
+    expect(JSON.stringify(result.capabilities)).not.toContain("/Users/");
+    expect(JSON.stringify(result.capabilities)).not.toContain("wsEndpoint");
   });
 
   it("normalizes unsupported blocker-state strings to clear", async () => {
@@ -324,13 +530,14 @@ describe("inspectSession", () => {
           dialog: { open: false }
         }
       },
-      trace: {
-        channels: {},
+      trace: makeTrace({
+        requestId: "",
+        generatedAt: "",
         meta: {
           blockerState: "unknown"
         },
         page: {}
-      } as InspectorTrace
+      })
     });
 
     const result = await inspectSession(handle, {
@@ -348,7 +555,9 @@ describe("inspectSession", () => {
         title: undefined,
         meta: undefined
       },
-      trace: {
+      trace: makeTrace({
+        requestId: "",
+        generatedAt: "",
         channels: {
           console: {
             events: [{ message: "plain message" }],
@@ -360,7 +569,7 @@ describe("inspectSession", () => {
           url: "",
           title: ""
         }
-      } as InspectorTrace
+      })
     });
 
     const result = await inspectSession(handle, {
@@ -375,6 +584,114 @@ describe("inspectSession", () => {
     });
     expect(result.console.latest).toEqual([{ level: "log", message: "plain message" }]);
     expect(result.healthState).toBe("ok");
+  });
+
+  it("redacts raw trace URLs from default proof, network, target, and exception summaries", async () => {
+    const { handle } = makeHandle({
+      session: {
+        url: "https://app.example.com/private/inbox?token=session-secret"
+      },
+      targets: {
+        activeTargetId: "target-1",
+        targets: [
+          {
+            targetId: "target-1",
+            type: "page",
+            title: "Private App",
+            url: "https://app.example.com/private/inbox?target=secret"
+          }
+        ]
+      },
+      trace: makeTrace({
+        page: {
+          url: "https://app.example.com/private/inbox?token=trace-secret",
+          title: "Private App"
+        },
+        channels: {
+          console: {
+            events: [
+              {
+                level: "error",
+                text: "Navigation failed at https://app.example.com/private/inbox?token=console-secret token=raw-console-secret"
+              }
+            ],
+            nextSeq: 1,
+            truncated: false
+          },
+          network: {
+            events: [
+              {
+                error: "blocked token=network-error-secret",
+                method: "GET",
+                url: "https://api.example.com/v1/accounts/user-123?access_token=network-secret"
+              }
+            ] as unknown as InspectorTrace["channels"]["network"]["events"]
+          },
+          exception: {
+            events: [
+              {
+                message: "OAuth callback failed",
+                sourceUrl: "https://accounts.example.com/oauth/callback?code=oauth-secret",
+                lineNumber: 2
+              }
+            ] as unknown as InspectorTrace["channels"]["exception"]["events"]
+          }
+        }
+      })
+    });
+
+    const result = await inspectSession(handle, {
+      sessionId: "session-redacted-default"
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(handle.listTargets).toHaveBeenCalledWith("session-redacted-default", false);
+    expect(result.targets.items[0]).not.toHaveProperty("url");
+    expect(result.proofArtifact.url).toBe("https://app.example.com/[redacted]");
+    expect(result.console.latest[0]?.message).toBe("Navigation failed at https://app.example.com/[redacted] token=[REDACTED]");
+    expect(result.network.latestFailures[0]?.url).toBe("https://api.example.com/[redacted]");
+    expect(result.network.latestFailures[0]?.error).toBe("blocked token=[REDACTED]");
+    expect(result.exception.latest[0]?.url).toBe("https://accounts.example.com/[redacted]");
+    expect(serialized).not.toContain("trace-secret");
+    expect(serialized).not.toContain("console-secret");
+    expect(serialized).not.toContain("raw-console-secret");
+    expect(serialized).not.toContain("network-secret");
+    expect(serialized).not.toContain("network-error-secret");
+    expect(serialized).not.toContain("oauth-secret");
+    expect(serialized).not.toContain("/private/inbox");
+    expect(serialized).not.toContain("/oauth/callback");
+  });
+
+  it("redacts raw target URLs even when includeUrls requests target details", async () => {
+    const { handle } = makeHandle({
+      targets: {
+        activeTargetId: "target-1",
+        targets: [
+          {
+            targetId: "target-1",
+            type: "page",
+            title: "Private App",
+            url: "https://app.example.com/private/inbox?token=target-secret"
+          }
+        ]
+      }
+    });
+
+    const result = await inspectSession(handle, {
+      sessionId: "session-redacted-targets",
+      includeUrls: true
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(handle.listTargets).toHaveBeenCalledWith("session-redacted-targets", true);
+    expect(result.targets.items[0]).not.toHaveProperty("url");
+    expect(result.targets.items[0]?.safeUrlSummary).toEqual({
+      scheme: "https",
+      host: "app.example.com",
+      origin: "https://app.example.com"
+    });
+    expect(serialized).not.toContain("target-secret");
+    expect(serialized).not.toContain("/private/inbox");
   });
 
   it("treats an open dialog as blocked before warning-level trace noise", async () => {
@@ -405,10 +722,8 @@ describe("inspectSession", () => {
       relayStatus: makeRelayStatus({
         health: {
           ok: false,
-          challengeState: "blocked",
-          blockedSessions: ["session-3"],
-          waitingForExtension: false,
-          actionable: ["Reconnect relay"]
+          reason: "discovery_unavailable",
+          detail: "Reconnect relay"
         }
       })
     });
@@ -455,7 +770,12 @@ describe("inspectSession", () => {
       relayStatus: null,
       expected: "Create or select a target before continuing the next automation step."
     }
-  ])("marks the session blocked for $name", async ({ handleOptions, relayStatus, expected }) => {
+  ] satisfies Array<{
+    name: string;
+    handleOptions: Parameters<typeof makeHandle>[0];
+    relayStatus: RelayStatus | null;
+    expected: string;
+  }>)("marks the session blocked for $name", async ({ handleOptions, relayStatus, expected }) => {
     const { handle } = makeHandle(handleOptions);
     const result = await inspectSession(handle, {
       sessionId: "session-4",
@@ -473,10 +793,8 @@ describe("inspectSession", () => {
       relayStatus: makeRelayStatus({
         health: {
           ok: false,
-          challengeState: "clear",
-          blockedSessions: [],
-          waitingForExtension: true,
-          actionable: ["Wait for relay health to recover"]
+          reason: "extension_disconnected",
+          detail: "Wait for relay health to recover"
         }
       })
     });
@@ -485,7 +803,8 @@ describe("inspectSession", () => {
       running: true,
       health: {
         ok: false,
-        waitingForExtension: true
+        reason: "extension_disconnected",
+        detail: "Wait for relay health to recover"
       }
     });
     expect("port" in (result.relay ?? {})).toBe(false);
@@ -516,15 +835,76 @@ describe("inspectSession", () => {
     );
   });
 
+  it("redacts empty, about, non-http, and invalid inspector URLs", async () => {
+    const { handle } = makeHandle({
+      session: {
+        url: ""
+      },
+      trace: makeTrace({
+        channels: {
+          exception: {
+            events: [
+              {
+                message: "Blank page exception",
+                sourceUrl: "about:blank"
+              },
+              {
+                message: "Srcdoc exception",
+                sourceUrl: "about:srcdoc"
+              },
+              {
+                message: "File URL exception",
+                sourceUrl: "file:///Users/alice/secret-profile/app.js"
+              },
+              {
+                message: "Malformed URL exception",
+                sourceUrl: "not a url"
+              }
+            ],
+            nextSeq: 12,
+            truncated: false
+          }
+        },
+        meta: {
+          blockerState: "clear"
+        },
+        page: {}
+      })
+    });
+
+    const result = await inspectSession(handle, {
+      sessionId: "session-redacted-url-variants"
+    });
+
+    expect(result.session).not.toHaveProperty("url");
+    expect(result.exception.eventCount).toBe(4);
+    expect(result.exception.latest).toEqual([
+      {
+        message: "Malformed URL exception",
+        url: "[invalid-url]"
+      },
+      {
+        message: "File URL exception",
+        url: "file:[redacted]"
+      },
+      {
+        message: "Srcdoc exception",
+        url: "about:[redacted]"
+      }
+    ]);
+    expect(JSON.stringify(result)).not.toContain("/Users/alice");
+    expect(JSON.stringify(result)).not.toContain("secret-profile");
+  });
+
   it("summarizes exception events and treats them as warning-level trace instability", async () => {
     const { handle } = makeHandle({
-      trace: {
+      trace: makeTrace({
         channels: {
           exception: {
             events: [
               {
                 message: "ReferenceError: missingWidget is not defined",
-                sourceURL: "https://example.com/app.js",
+                sourceUrl: "https://example.com/app.js",
                 lineNumber: 17,
                 columnNumber: 4
               },
@@ -540,7 +920,7 @@ describe("inspectSession", () => {
           blockerState: "clear"
         },
         page: {}
-      } as InspectorTrace
+      })
     });
 
     const result = await inspectSession(handle, {
@@ -555,7 +935,7 @@ describe("inspectSession", () => {
         { message: "Unhandled promise rejection" },
         {
           message: "ReferenceError: missingWidget is not defined",
-          url: "https://example.com/app.js",
+          url: "https://example.com/[redacted]",
           line: 17,
           column: 4
         }
@@ -600,7 +980,7 @@ describe("inspectSession", () => {
       latest: [
         {
           message: "Unhandled exception",
-          url: "https://example.com/app.js"
+          url: "https://example.com/[redacted]"
         }
       ]
     });
@@ -676,5 +1056,26 @@ describe("buildCorrelatedAuditBundle", () => {
     });
 
     expect(result.requestId).toBe("manual-fallback-id");
+  });
+
+  it("generates a bundle requestId when trace and caller ids are absent", async () => {
+    const { handle } = makeHandle({
+      trace: {
+        channels: {},
+        meta: {},
+        page: {}
+      } as InspectorTrace
+    });
+
+    const result = await buildCorrelatedAuditBundle({
+      handle,
+      browserSessionId: "session-1",
+      observation,
+      review,
+      challengePlan: makeChallengePlan()
+    });
+
+    expect(result.requestId).toEqual(expect.any(String));
+    expect(result.requestId).not.toBe("");
   });
 });

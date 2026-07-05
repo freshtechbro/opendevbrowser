@@ -4,7 +4,14 @@ import {
   normalizeProviderReasonCode,
   providerErrorCodeFromReasonCode
 } from "./errors";
-import type { JsonValue, NormalizedRecord, ProviderFailureEntry, ProviderReasonCode, ProviderSource } from "./types";
+import type {
+  JsonValue,
+  NormalizedRecord,
+  ProviderFailureEntry,
+  ProviderReasonCode,
+  ProviderSource,
+  ResolvedProviderRuntimePolicy
+} from "./types";
 import type { SiteRecipe, SiteRecipeBadState } from "../guidance/types";
 import {
   classifyPinterestCandidate,
@@ -31,6 +38,7 @@ export type BrowserNativeDiscoveryInput = {
   browserMode?: string;
   useCookies?: boolean;
   cookiePolicy?: string;
+  auth?: ResolvedProviderRuntimePolicy["auth"];
   fetchSearchPage?: (url: string) => Promise<BrowserNativeDiscoveryFetchResult>;
 };
 
@@ -86,7 +94,83 @@ const needsAuthenticatedBrowser = (input: BrowserNativeDiscoveryInput): boolean 
 };
 
 const hasAuthenticatedBrowser = (input: BrowserNativeDiscoveryInput): boolean => {
-  return input.browserMode === "extension" && input.useCookies === true;
+  if (!input.auth) {
+    return input.browserMode === "extension" && input.useCookies === true;
+  }
+  if (input.auth.proof === "provider_verified") {
+    return hasProviderVerifiedBrowser(input);
+  }
+  if (input.auth.capability === "profile_continuity") {
+    return input.auth.proof === "profile_declared" && hasManagedProfileAgreement(input);
+  }
+  if (input.auth.capability === "explicit_cdp_profile") {
+    return input.auth.proof === "profile_declared" && hasExplicitCdpProfileAgreement(input);
+  }
+  if (input.auth.capability === "live_extension_required") {
+    return input.browserMode === "extension"
+      && (input.auth.proof === "live_extension" || input.useCookies === true);
+  }
+  if (input.auth.capability === "cookie_continuity") {
+    return input.browserMode === "extension" && input.useCookies === true;
+  }
+  return false;
+};
+
+const hasProviderVerifiedBrowser = (input: BrowserNativeDiscoveryInput): boolean => {
+  if (!input.auth) {
+    return false;
+  }
+  if (input.auth.capability === "profile_continuity") {
+    return hasManagedProfileAgreement(input);
+  }
+  if (input.auth.capability === "explicit_cdp_profile") {
+    return hasExplicitCdpProfileAgreement(input);
+  }
+  if (input.auth.capability === "cookie_continuity") {
+    return input.useCookies === true;
+  }
+  if (input.auth.capability === "live_extension_required") {
+    return input.browserMode === "extension";
+  }
+  return false;
+};
+
+const hasManagedProfileAgreement = (input: BrowserNativeDiscoveryInput): boolean => (
+  input.browserMode === "managed"
+  && input.auth?.profileMode === "managed"
+  && input.auth.profileTrust === "trusted"
+);
+
+const hasExplicitCdpProfileAgreement = (input: BrowserNativeDiscoveryInput): boolean => (
+  input.browserMode === "cdpConnect"
+  && input.auth?.profileMode === "explicit_cdp"
+  && input.auth.profileTrust === "trusted"
+);
+
+const canAttemptRequestedManagedProfileDiscovery = (input: BrowserNativeDiscoveryInput): boolean => {
+  return input.auth?.capability === "profile_continuity"
+    && input.auth.proof === "profile_declared"
+    && hasManagedProfileAgreement(input);
+};
+
+const authDiagnosticsForInput = (
+  auth: ResolvedProviderRuntimePolicy["auth"] | undefined
+): Record<string, JsonValue> => auth
+  ? {
+    authCapability: auth.capability,
+    authProof: auth.proof,
+    recommendedMode: auth.recommendedMode,
+    doNotProceedIf: auth.doNotProceedIf as unknown as JsonValue
+  }
+  : {};
+
+const requiredBrowserModeForAuth = (
+  auth: ResolvedProviderRuntimePolicy["auth"] | undefined
+): string => {
+  if (!auth) return "extension";
+  if (auth.recommendedMode === "managed_headed") return "managed_profile";
+  if (auth.recommendedMode === "explicit_cdp_profile") return "explicit_cdp_profile";
+  return auth.recommendedMode;
 };
 
 const htmlFromRecord = (record: NormalizedRecord): string => {
@@ -557,7 +641,12 @@ export const runBrowserNativeDiscovery = async (
       }
     };
   }
-  if (needsAuthenticatedBrowser(input) && !hasAuthenticatedBrowser(input)) {
+  if (
+    needsAuthenticatedBrowser(input)
+    && !hasAuthenticatedBrowser(input)
+    && !canAttemptRequestedManagedProfileDiscovery(input)
+  ) {
+    const requiredBrowserMode = requiredBrowserModeForAuth(input.auth);
     return {
       records: [],
       failures: [{
@@ -574,8 +663,9 @@ export const runBrowserNativeDiscovery = async (
             details: {
               siteRecipeId: input.recipe.id,
               query: input.query,
-              requiredBrowserMode: "extension",
-              requiredCookies: true
+              requiredBrowserMode,
+              requiredCookies: true,
+              ...authDiagnosticsForInput(input.auth)
             }
           }
         )
@@ -584,7 +674,9 @@ export const runBrowserNativeDiscovery = async (
         siteRecipeId: input.recipe.id,
         attempted: false,
         reason: "auth_required",
-        recoverySteps: input.recipe.recoverySteps.map((step) => step.instruction)
+        recoverySteps: input.recipe.recoverySteps.map((step) => step.instruction),
+        requiredBrowserMode,
+        ...authDiagnosticsForInput(input.auth)
       }
     };
   }
@@ -786,6 +878,7 @@ export const runBrowserNativeDiscovery = async (
           acceptedUrls,
           pinterestSourceClassification?.sourcePageQuality
         ),
+        ...authDiagnosticsForInput(input.auth),
         ...(pinterestSourceClassification ? {
           sourcePageQuality: pinterestSourceClassification.sourcePageQuality,
           diagnosticBlockers: pinterestSourceClassification.diagnosticBlockers as unknown as JsonValue,

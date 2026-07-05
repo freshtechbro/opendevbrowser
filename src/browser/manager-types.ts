@@ -1,6 +1,7 @@
 /* c8 ignore file */
 import type { BrowserManager } from "./browser-manager";
 import type { BrowserMode } from "./session-store";
+import type { SessionProfileSummary } from "./session-profile-registry";
 import type { GoogleAuthIntent } from "../core/auth-intent";
 import type {
   BlockerSignalV1,
@@ -231,6 +232,7 @@ export type BrowserProviderCookieImportProvenance = {
 export type BrowserAuthProvenanceDiagnostics = {
   readonly googleAuthIntent: GoogleAuthIntent;
   readonly profileSource: BrowserAuthProfileSource;
+  readonly profile?: SessionProfileSummary;
   readonly cookieBootstrap: BrowserCookieBootstrapProvenance;
   readonly explicitCookieImportAttempted?: boolean;
   readonly providerCookieImport?: BrowserProviderCookieImportProvenance;
@@ -359,6 +361,9 @@ export type BrowserManagerLike = Pick<BrowserManager,
     wsEndpoint: string,
     options?: { startUrl?: string } & BrowserAuthSessionOptions
   ) => ReturnType<BrowserManager["connectRelay"]>;
+  startExplicitCdpProfile?: BrowserManager["startExplicitCdpProfile"];
+  statusExplicitCdpProfile?: BrowserManager["statusExplicitCdpProfile"];
+  stopExplicitCdpProfile?: BrowserManager["stopExplicitCdpProfile"];
   registerCanvasTarget?: (
     sessionId: string,
     targetId: string

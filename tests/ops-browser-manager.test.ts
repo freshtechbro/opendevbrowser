@@ -218,6 +218,47 @@ describe("OpsBrowserManager", () => {
     });
   });
 
+  it("delegates explicit CDP profile lifecycle methods to the base manager", async () => {
+    const profileResult = {
+      profile: {
+        profileId: "odb-cdp-smoke",
+        displayName: "odb-cdp-smoke",
+        kind: "explicit_cdp_profile",
+        scope: "explicit_local_cdp",
+        browserFamily: "chrome",
+        persistent: true,
+        headless: false,
+        authCapability: "explicit_cdp_profile",
+        authProof: "profile_declared"
+      },
+      port: 9339,
+      warnings: []
+    };
+    const base = {
+      startExplicitCdpProfile: vi.fn().mockResolvedValue(profileResult),
+      statusExplicitCdpProfile: vi.fn().mockResolvedValue(profileResult),
+      stopExplicitCdpProfile: vi.fn().mockResolvedValue(profileResult),
+      setChallengeOrchestrator: vi.fn()
+    };
+    const manager = new OpsBrowserManager(base as never, makeConfig());
+
+    await expect(manager.startExplicitCdpProfile({
+      profile: "odb-cdp-smoke",
+      port: 9339,
+      startUrl: "https://example.com"
+    })).resolves.toBe(profileResult);
+    await expect(manager.statusExplicitCdpProfile("odb-cdp-smoke")).resolves.toBe(profileResult);
+    await expect(manager.stopExplicitCdpProfile("odb-cdp-smoke")).resolves.toBe(profileResult);
+
+    expect(base.startExplicitCdpProfile).toHaveBeenCalledWith({
+      profile: "odb-cdp-smoke",
+      port: 9339,
+      startUrl: "https://example.com"
+    });
+    expect(base.statusExplicitCdpProfile).toHaveBeenCalledWith("odb-cdp-smoke");
+    expect(base.stopExplicitCdpProfile).toHaveBeenCalledWith("odb-cdp-smoke");
+  });
+
   it("delegates non-ops sessions to the base manager", async () => {
     const base = {
       launch: vi.fn().mockResolvedValue({

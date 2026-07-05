@@ -1,12 +1,14 @@
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
+import { execFileSync, spawn } from "node:child_process";
 import { constants as fsConstants } from "fs";
-import { access, mkdir, open, rm, unlink, writeFile } from "fs/promises";
+import { access, mkdir, open, readFile, rm, unlink, writeFile } from "fs/promises";
+import { createServer } from "node:net";
 import { dirname, join } from "path";
-import { freemem, totalmem } from "os";
+import { freemem, homedir, totalmem } from "os";
 import type { Browser, BrowserContext, CDPSession, Dialog, Page } from "playwright-core";
 import { Mutex } from "async-mutex";
 import { requireChallengeOrchestrationConfig, type OpenDevBrowserConfig } from "../config";
-import { resolveCachePaths } from "../cache/paths";
+import { resolveCachePaths, type CachePaths } from "../cache/paths";
 import { findChromeExecutable } from "../cache/chrome-locator";
 import { downloadChromeForTesting } from "../cache/downloader";
 import { createLogger, createRequestId } from "../core/logging";
@@ -89,6 +91,15 @@ import {
 import { SessionStore, type BrowserMode } from "./session-store";
 import { TargetManager, type TargetInfo } from "./target-manager";
 import {
+  buildSafeTargetUrlSummary,
+  CdpTargetOwnershipGraph,
+  inferTargetPopupKind,
+  metadataFromCdpTargetEntry,
+  type CdpTargetOwnershipEntry,
+  type CdpTargetOwnershipSession,
+  type TargetOwnershipMetadata
+} from "./cdp-target-ownership";
+import {
   createGovernorState,
   evaluateGovernor,
   rssUsagePercent,
@@ -106,6 +117,15 @@ import { loadSystemChromeCookies } from "./system-chrome-cookies";
 import { GlobalChallengeCoordinator } from "./global-challenge-coordinator";
 import { BrowserScreencastRecorder } from "./screencast-recorder";
 import { sanitizeProviderCookieImportProvenance } from "./auth-provenance";
+import {
+  createSessionProfileRegistry,
+  sanitizeSessionProfileId,
+  type SessionProfileEndpoint,
+  type SessionProfileLease,
+  type SessionProfileRecord,
+  type SessionProfileSummary
+} from "./session-profile-registry";
+import { findUnsafeExplicitCdpProfileFlag } from "./explicit-cdp-profile-flags";
 
 export type LaunchOptions = {
   profile?: string;
@@ -122,8 +142,30 @@ export type ConnectOptions = {
   wsEndpoint?: string;
   host?: string;
   port?: number;
+  profile?: string;
   startUrl?: string;
 } & BrowserAuthSessionOptions;
+
+export type ExplicitCdpProfileStartOptions = {
+  profile: string;
+  port?: number;
+  startUrl?: string;
+  chromePath?: string;
+  flags?: string[];
+  readinessTimeoutMs?: number;
+};
+
+export type ExplicitCdpProfileResult = {
+  profile: SessionProfileSummary;
+  pid?: number;
+  port?: number;
+  warnings: string[];
+};
+
+type ResolvedExplicitCdpProfile = {
+  readonly record: SessionProfileRecord;
+  readonly wsEndpoint: string;
+};
 
 type BrowserSessionStartResult = {
   sessionId: string;
@@ -134,6 +176,16 @@ type BrowserSessionStartResult = {
   wsEndpoint?: string;
   leaseId?: string;
 };
+
+const CDP_PROFILE_START_TIMEOUT_MS = 10_000;
+const CDP_PROFILE_START_POLL_MS = 100;
+const CDP_PROFILE_STOP_TIMEOUT_MS = 5_000;
+const CDP_PROFILE_STOP_POLL_MS = 100;
+const CDP_PROFILE_LAUNCH_TOKEN_FILE = ".opendevbrowser-cdp-launch-token.json";
+const CDP_CONNECT_ERROR_URL_PATTERN = /\b(?:wss?|https?):\/\/[^\s)'"<>]+/gi;
+const CDP_CONNECT_ERROR_SECRET_PATTERN = /\b(token|pairingToken|access_token|auth|session|sid)=\S+/gi;
+const PROFILE_LOCK_MESSAGE_PATH_HASH_LENGTH = 16;
+const RESERVED_CDP_PROFILE_IDS = new Set(["default"]);
 
 export type ManagedSession = {
   sessionId: string;
@@ -159,6 +211,16 @@ export type ManagedSession = {
     lastAppliedNetworkSeq: number;
   };
   authProvenance: BrowserAuthProvenanceDiagnostics;
+  cdpTargetOwnership?: CdpTargetOwnershipGraph;
+};
+
+type ExplicitCdpLaunchTokenProof = {
+  version: 1;
+  profileId: string;
+  launchTokenId: string;
+  port: number;
+  pid?: number;
+  createdAt: string;
 };
 
 type BackpressureErrorInfo = {
@@ -1731,14 +1793,10 @@ export class BrowserManager {
   async launch(options: LaunchOptions): Promise<BrowserSessionStartResult> {
     this.assertGoogleAuthIntentAllowedForMode("managed", options.googleAuthIntent);
     const resolvedProfile = options.profile ?? this.config.profile;
+    const resolvedProfileId = sanitizeSessionProfileId(resolvedProfile);
     const resolvedHeadless = options.headless ?? this.config.headless;
-    const persistProfile = options.persistProfile ?? this.config.persistProfile;
-    const authProvenance = this.createInitialAuthProvenance(
-      "managed_profile",
-      options.googleAuthIntent
-    );
-
-    const cachePaths = await resolveCachePaths(this.worktree, resolvedProfile);
+    const persistProfile = options.persistProfile ?? (resolvedHeadless ? false : this.config.persistProfile);
+    const cachePaths = await resolveCachePaths(this.worktree, resolvedProfileId);
     const executable = await findChromeExecutable(options.chromePath ?? this.config.chromePath);
     const warnings: string[] = [];
 
@@ -1756,6 +1814,16 @@ export class BrowserManager {
     await mkdir(profileDir, { recursive: true });
 
     let context: BrowserContext | null = null;
+    const sessionId = randomUUID();
+    const profileRegistry = createSessionProfileRegistry(cachePaths.profileRegistryDir);
+    const managedLease = persistProfile
+      ? profileRegistry.acquireLease(resolvedProfileId, {
+        pid: process.pid,
+        launchTokenId: sessionId,
+        acquiredAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString()
+      })
+      : undefined;
 
     try {
       const chromium = await loadChromium();
@@ -1770,7 +1838,23 @@ export class BrowserManager {
       if (!browser) {
         throw new Error("Browser instance unavailable");
       }
-      const sessionId = randomUUID();
+      const sessionProfile = this.createManagedSessionProfileSummary({
+        cachePaths,
+        profileName: resolvedProfile,
+        profileDir,
+        persistProfile,
+        headless: resolvedHeadless,
+        lease: managedLease ?? {
+          launchTokenId: sessionId,
+          acquiredAt: new Date().toISOString(),
+          lastSeenAt: new Date().toISOString()
+        }
+      });
+      const authProvenance = this.createInitialAuthProvenance(
+        "managed_profile",
+        options.googleAuthIntent,
+        sessionProfile
+      );
       const targets = new TargetManager();
       const pages = context.pages();
 
@@ -1830,6 +1914,7 @@ export class BrowserManager {
       this.attachContinuousFingerprintSignals(managed);
       this.attachTrackers(managed);
       this.attachRefInvalidation(managed);
+      await this.attachCdpTargetOwnership(managed);
 
       const wsEndpointProvider = browser as unknown as { wsEndpoint?: () => string };
       const wsEndpoint = typeof wsEndpointProvider.wsEndpoint === "function"
@@ -1872,6 +1957,14 @@ export class BrowserManager {
         }
       }
 
+      if (managedLease) {
+        try {
+          profileRegistry.releaseLease(resolvedProfileId, managedLease.launchTokenId);
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
+        }
+      }
+
       if (cleanupErrors.length > 0) {
         const message = profileLockMessage ?? `Failed to launch browser context: ${launchMessage}`;
         throw new AggregateError(
@@ -1890,12 +1983,15 @@ export class BrowserManager {
 
   async connect(options: ConnectOptions): Promise<BrowserSessionStartResult> {
     this.assertGoogleAuthIntentAllowedForMode("cdpConnect", options.googleAuthIntent);
-    const wsEndpoint = await this.resolveWsEndpoint(options);
+    const explicitProfile = options.profile
+      ? await this.resolveExplicitCdpProfile(options.profile)
+      : undefined;
+    const wsEndpoint = explicitProfile?.wsEndpoint ?? await this.resolveWsEndpoint(options);
     const result = await this.connectWithEndpoint(wsEndpoint, "cdpConnect", undefined, undefined, {
       googleAuthIntent: options.googleAuthIntent,
       disableSystemCookieBootstrap: options.disableSystemCookieBootstrap,
       allowGoogleCookieBootstrap: options.allowGoogleCookieBootstrap
-    });
+    }, explicitProfile?.record);
     const startUrl = options.startUrl?.trim();
     if (startUrl && result.activeTargetId) {
       await this.goto(result.sessionId, startUrl);
@@ -1920,6 +2016,166 @@ export class BrowserManager {
       return { ...result, activeTargetId: this.getManaged(result.sessionId).targets.getActiveTargetId() };
     }
     return result;
+  }
+
+  async startExplicitCdpProfile(
+    options: ExplicitCdpProfileStartOptions
+  ): Promise<ExplicitCdpProfileResult> {
+    const profileId = this.requireExplicitCdpProfileId(options.profile);
+    const cachePaths = await resolveCachePaths(this.worktree, profileId);
+    const registry = createSessionProfileRegistry(cachePaths.profileRegistryDir);
+    await this.recoverOrRejectExplicitCdpLease(registry, registry.read(profileId), profileId);
+    const executable = await findChromeExecutable(options.chromePath ?? this.config.chromePath);
+    const warnings: string[] = [];
+    let executablePath = executable;
+    if (!executablePath) {
+      const download = await downloadChromeForTesting(cachePaths.chromeDir);
+      warnings.push("System Chrome not found. Downloaded Chrome for Testing.");
+      executablePath = download.executablePath;
+    }
+    const port = options.port ?? await reserveLocalPort();
+    const occupiedEndpoint = await probeCdpWsEndpoint(port);
+    if (occupiedEndpoint) {
+      throw new Error(`Port ${port} already exposes a Chrome DevTools endpoint; choose another --cdp-port or stop the existing browser first.`);
+    }
+    const launchTokenId = randomUUID();
+    const profileDir = cachePaths.profileDir;
+    await mkdir(profileDir, { recursive: true });
+    const flags = options.flags ?? this.config.flags;
+    const unsafeFlag = findUnsafeExplicitCdpProfileFlag(flags);
+    if (unsafeFlag) {
+      throw new Error(`Refusing explicit CDP profile start with unsafe Chrome flag ${unsafeFlag}; OpenDevBrowser manages profile and CDP endpoint flags.`);
+    }
+    const args = [
+      `--user-data-dir=${profileDir}`,
+      "--remote-debugging-address=127.0.0.1",
+      `--remote-debugging-port=${port}`,
+      "--no-first-run",
+      "--no-default-browser-check",
+      ...flags,
+      options.startUrl?.trim() || "about:blank"
+    ];
+    const lease = registry.acquireLease(profileId, {
+      port,
+      launchTokenId,
+      acquiredAt: new Date().toISOString(),
+      lastSeenAt: new Date().toISOString()
+    });
+    const child = spawn(executablePath, args, {
+      detached: true,
+      stdio: "ignore"
+    });
+    child.unref();
+    try {
+      await waitForCdpWsEndpoint(
+        port,
+        options.readinessTimeoutMs ?? CDP_PROFILE_START_TIMEOUT_MS
+      );
+      const now = new Date().toISOString();
+      await this.writeExplicitCdpLaunchToken(profileDir, {
+        version: 1,
+        profileId,
+        launchTokenId,
+        port,
+        ...(child.pid ? { pid: child.pid } : {}),
+        createdAt: now
+      });
+      const record = registry.upsert({
+        profileId,
+        displayName: options.profile,
+        kind: "explicit_cdp_profile",
+        scope: "explicit_local_cdp",
+        browserFamily: "chrome",
+        persistent: true,
+        headless: false,
+        pathForHash: profileDir,
+        authCapability: "explicit_cdp_profile",
+        authProof: "profile_declared",
+        endpoint: { host: "127.0.0.1", port },
+        lease: {
+          ...lease,
+          ...(child.pid ? { pid: child.pid } : {}),
+          lastSeenAt: now
+        }
+      });
+      return {
+        profile: registry.summarize(record),
+        ...(child.pid ? { pid: child.pid } : {}),
+        port,
+        warnings
+      };
+    } catch (error) {
+      await terminateProcessBestEffort(child.pid, CDP_PROFILE_STOP_TIMEOUT_MS);
+      registry.releaseLease(profileId, launchTokenId);
+      await this.deleteExplicitCdpLaunchToken(profileDir);
+      throw error;
+    }
+  }
+
+  async statusExplicitCdpProfile(profile: string): Promise<ExplicitCdpProfileResult> {
+    const record = await this.readExplicitCdpProfile(profile);
+    if (!record) {
+      throw new Error(`No OpenDevBrowser CDP profile record exists for profile "${sanitizeSessionProfileId(profile)}".`);
+    }
+    const registry = createSessionProfileRegistry((await resolveCachePaths(this.worktree, record.profileId)).profileRegistryDir);
+    const staleRecord = record.lease?.pid && !isProcessAlive(record.lease.pid)
+      ? registry.releaseLease(record.profileId, record.lease.launchTokenId) ?? record
+      : record;
+    return {
+      profile: registry.summarize(staleRecord),
+      ...(staleRecord.lease?.pid ? { pid: staleRecord.lease.pid } : {}),
+      ...(staleRecord.endpoint?.port ? { port: staleRecord.endpoint.port } : {}),
+      warnings: staleRecord === record ? [] : ["Recorded CDP browser process had exited; released stale profile lease."]
+    };
+  }
+
+  async stopExplicitCdpProfile(profile: string): Promise<ExplicitCdpProfileResult> {
+    const record = await this.readExplicitCdpProfile(profile);
+    if (!record) {
+      throw new Error(`No OpenDevBrowser CDP profile record exists for profile "${sanitizeSessionProfileId(profile)}".`);
+    }
+    if (record.kind !== "explicit_cdp_profile" || record.scope !== "explicit_local_cdp") {
+      throw new Error("Refusing to stop a browser without an OpenDevBrowser-owned explicit CDP profile record.");
+    }
+    if (!record.lease?.pid) {
+      throw new Error("No OpenDevBrowser-owned CDP browser process is recorded for this profile.");
+    }
+    const pid = record.lease.pid;
+    const cachePaths = await resolveCachePaths(this.worktree, record.profileId);
+    const registry = createSessionProfileRegistry(cachePaths.profileRegistryDir);
+    if (!isProcessAlive(pid)) {
+      const released = registry.releaseLease(record.profileId, record.lease.launchTokenId) ?? record;
+      await this.deleteExplicitCdpLaunchToken(cachePaths.profileDir);
+      return {
+        profile: registry.summarize(released),
+        ...(released.endpoint?.port ? { port: released.endpoint.port } : {}),
+        warnings: ["Recorded CDP browser process was already stopped; released stale profile lease."]
+      };
+    }
+    await this.requireLiveExplicitCdpProfileEndpoint(record);
+    await this.requireExplicitCdpLaunchToken(record, cachePaths.profileDir);
+    const leasePort = record.lease.port;
+    if (!leasePort) {
+      throw new Error("Explicit CDP profile lease is missing a recorded port. Run cdp-profile start again.");
+    }
+    if (!isExplicitCdpProcessOwnedByProfile(pid, cachePaths.profileDir, leasePort)) {
+      const released = registry.releaseLease(record.profileId, record.lease.launchTokenId) ?? record;
+      await this.deleteExplicitCdpLaunchToken(cachePaths.profileDir);
+      return {
+        profile: registry.summarize(released),
+        ...(released.endpoint?.port ? { port: released.endpoint.port } : {}),
+        warnings: ["Recorded CDP browser PID could not be verified as OpenDevBrowser-owned; released the stale profile lease without stopping the process."]
+      };
+    }
+    process.kill(pid, "SIGTERM");
+    await waitForProcessExit(pid, CDP_PROFILE_STOP_TIMEOUT_MS);
+    const released = registry.releaseLease(record.profileId, record.lease.launchTokenId) ?? record;
+    await this.deleteExplicitCdpLaunchToken(cachePaths.profileDir);
+    return {
+      profile: registry.summarize(released),
+      ...(released.endpoint?.port ? { port: released.endpoint.port } : {}),
+      warnings: []
+    };
   }
 
   async closeAll(): Promise<void> {
@@ -1961,6 +2217,12 @@ export class BrowserManager {
 
       this.clearSessionDialogs(sessionId);
       this.clearSessionManagedClicks(sessionId);
+
+      try {
+        await managed.cdpTargetOwnership?.close();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
 
       try {
         const shouldCloseBrowser = closeBrowser || managed.mode !== "managed";
@@ -2010,6 +2272,12 @@ export class BrowserManager {
           cleanupErrors.push(error);
         }
       }
+
+      try {
+        await this.releaseManagedSessionProfileLease(managed);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
     } finally {
       this.challengeCoordinator.release(sessionId);
       this.sessions.delete(sessionId);
@@ -2031,6 +2299,7 @@ export class BrowserManager {
     url?: string;
     title?: string;
     meta?: BrowserResponseMeta;
+    diagnostics?: BrowserSessionDiagnostics;
   }> {
     const managed = this.getManaged(sessionId);
     const activeTargetId = managed.targets.getActiveTargetId();
@@ -2058,7 +2327,8 @@ export class BrowserManager {
       activeTargetId,
       url,
       title,
-      ...(meta ? { meta } : {})
+      ...(meta ? { meta } : {}),
+      diagnostics: { authProvenance: managed.authProvenance }
     };
   }
 
@@ -2147,16 +2417,28 @@ export class BrowserManager {
       const managed = this.getManaged(sessionId);
       try {
         managed.targets.syncPages(managed.context.pages());
+        this.reconcileCdpTargetOwnership(managed);
       } catch {
         // Best-effort sync only.
       }
       const targets = await Promise.all(managed.targets.listPageEntries().map(async ({ targetId, page }) => {
         const url = includeUrls ? this.safePageUrl(page, "BrowserManager.listTargets") : undefined;
         const title = await this.safeManagedPageTitle(managed, page, "BrowserManager.listTargets");
+        const metadata = managed.targets.getTargetMetadata(targetId);
+        const safeUrlSummary = includeUrls
+          ? metadata?.safeUrlSummary ?? buildSafeTargetUrlSummary(url)
+          : undefined;
         return {
           targetId,
           ...(typeof title === "string" ? { title } : {}),
           ...(includeUrls && typeof url === "string" ? { url } : {}),
+          ...(metadata?.cdpTargetId ? { cdpTargetId: metadata.cdpTargetId } : {}),
+          ...(metadata?.openerCdpTargetId ? { openerCdpTargetId: metadata.openerCdpTargetId } : {}),
+          ...(metadata?.openerTargetId ? { openerTargetId: metadata.openerTargetId } : {}),
+          ...(metadata?.lifecycleState ? { lifecycleState: metadata.lifecycleState } : {}),
+          ...(metadata?.popupKind ? { popupKind: metadata.popupKind } : {}),
+          ...(metadata?.ownershipSource ? { ownershipSource: metadata.ownershipSource } : {}),
+          ...(safeUrlSummary ? { safeUrlSummary } : {}),
           type: "page" as const
         };
       }));
@@ -2704,6 +2986,7 @@ export class BrowserManager {
       const startTime = Date.now();
       const previousUrl = page.url();
       await this.clickResolvedRef(managed, page, ref, resolvedTargetId);
+      this.syncTargetsAfterAction(managed, resolvedTargetId);
       const navigated = page.url() !== previousUrl;
       return { timingMs: Date.now() - startTime, navigated };
     });
@@ -3800,11 +4083,13 @@ export class BrowserManager {
 
   private createInitialAuthProvenance(
     profileSource: BrowserAuthProvenanceDiagnostics["profileSource"],
-    googleAuthIntent: GoogleAuthIntent = DEFAULT_GOOGLE_AUTH_INTENT
+    googleAuthIntent: GoogleAuthIntent = DEFAULT_GOOGLE_AUTH_INTENT,
+    profile?: SessionProfileSummary
   ): BrowserAuthProvenanceDiagnostics {
     return {
       googleAuthIntent,
       profileSource,
+      ...(profile ? { profile } : {}),
       cookieBootstrap: {
         attempted: false,
         disabled: false,
@@ -3812,6 +4097,120 @@ export class BrowserManager {
         rejectedCount: 0
       }
     };
+  }
+
+  private async releaseManagedSessionProfileLease(managed: ManagedSession): Promise<void> {
+    if (managed.mode !== "managed" || !managed.persistProfile) {
+      return;
+    }
+    const profile = managed.authProvenance.profile;
+    if (!profile?.profileId) {
+      return;
+    }
+    const cachePaths = await resolveCachePaths(this.worktree, profile.profileId);
+    const registry = createSessionProfileRegistry(cachePaths.profileRegistryDir);
+    const launchTokenId = registry.read(profile.profileId)?.lease?.launchTokenId;
+    if (!launchTokenId) {
+      return;
+    }
+    registry.releaseLease(profile.profileId, launchTokenId);
+  }
+
+  private createManagedSessionProfileSummary(input: {
+    cachePaths: CachePaths;
+    profileName: string;
+    profileDir: string;
+    persistProfile: boolean;
+    headless: boolean;
+    lease: SessionProfileLease;
+  }): SessionProfileSummary {
+    const registry = createSessionProfileRegistry(input.cachePaths.profileRegistryDir);
+    const profileContinuity = input.persistProfile && !input.headless;
+    const record = registry.upsert({
+      profileId: input.profileName,
+      displayName: input.profileName,
+      kind: input.persistProfile ? "managed_persistent" : "managed_temporary",
+      scope: input.persistProfile ? "opendevbrowser_owned" : "temporary",
+      browserFamily: "chromium",
+      persistent: input.persistProfile,
+      headless: input.headless,
+      pathForHash: input.profileDir,
+      authCapability: profileContinuity ? "profile_continuity" : "public",
+      authProof: profileContinuity ? "profile_declared" : "none",
+      lease: input.lease
+    });
+    return registry.summarize(record);
+  }
+
+  private createConnectedSessionProfileSummary(input: {
+    cachePaths: CachePaths;
+    mode: BrowserMode;
+    wsEndpoint: string;
+    launchTokenId: string;
+    explicitCdpProfile?: SessionProfileRecord;
+  }): SessionProfileSummary {
+    const registry = createSessionProfileRegistry(input.cachePaths.profileRegistryDir);
+    if (input.explicitCdpProfile) {
+      const now = new Date().toISOString();
+      const record = registry.upsert({
+        ...input.explicitCdpProfile,
+        authCapability: "explicit_cdp_profile",
+        authProof: "profile_declared",
+        updatedAt: now,
+        ...(input.explicitCdpProfile.lease ? { lease: {
+          ...input.explicitCdpProfile.lease,
+          lastSeenAt: now
+        } } : {})
+      });
+      return registry.summarize(record);
+    }
+    const endpoint = this.parseSessionProfileEndpoint(input.wsEndpoint);
+    const extensionMode = input.mode === "extension";
+    const now = new Date().toISOString();
+    const record = registry.upsert({
+      profileId: extensionMode
+        ? "extension-live"
+        : endpoint
+          ? `raw-cdp-${endpoint.host}-${endpoint.port}`
+          : "raw-cdp-unknown",
+      displayName: extensionMode ? "Extension live profile" : "Raw CDP profile",
+      kind: extensionMode ? "extension_live" : "raw_cdp_unknown",
+      scope: extensionMode ? "live_extension" : "unknown",
+      browserFamily: "unknown",
+      persistent: true,
+      headless: false,
+      authCapability: extensionMode ? "live_extension" : "public",
+      authProof: extensionMode ? "live_extension" : "none",
+      ...(endpoint ? { endpoint } : {}),
+      lease: {
+        launchTokenId: input.launchTokenId,
+        acquiredAt: now,
+        lastSeenAt: now
+      }
+    });
+    return registry.summarize(record);
+  }
+
+  private parseSessionProfileEndpoint(wsEndpoint: string): SessionProfileEndpoint | undefined {
+    try {
+      const url = new URL(wsEndpoint);
+      const host = this.normalizeSessionProfileEndpointHost(url.hostname);
+      const port = Number.parseInt(url.port, 10);
+      if (!host || !Number.isInteger(port) || port <= 0) {
+        return undefined;
+      }
+      return { host, port };
+    } catch {
+      return undefined;
+    }
+  }
+
+  private normalizeSessionProfileEndpointHost(hostname: string): SessionProfileEndpoint["host"] | null {
+    const normalized = hostname.toLowerCase().replace(/^\[(.*)\]$/, "$1");
+    if (normalized === "127.0.0.1" || normalized === "localhost" || normalized === "::1") {
+      return normalized;
+    }
+    return null;
   }
 
   private updateCookieBootstrapProvenance(
@@ -5652,12 +6051,30 @@ export class BrowserManager {
     if (!profileLock) {
       return null;
     }
+    const sanitizedLaunchMessage = this.sanitizeProfileLockLaunchMessage(launchMessage, profileDir);
     return [
       "Failed to launch browser context: browser profile is locked by another process.",
-      `Profile directory: ${profileDir}.`,
+      `Profile path hash: ${this.hashProfilePathForMessage(profileDir)}.`,
       "Retry with a unique profile (--profile <name>) or disable persistence (--persist-profile false).",
-      `Original error: ${launchMessage}`
+      `Original error: ${sanitizedLaunchMessage}`
     ].join(" ");
+  }
+
+  private hashProfilePathForMessage(profileDir: string): string {
+    return createHash("sha256")
+      .update(profileDir)
+      .digest("hex")
+      .slice(0, PROFILE_LOCK_MESSAGE_PATH_HASH_LENGTH);
+  }
+
+  private sanitizeProfileLockLaunchMessage(launchMessage: string, profileDir: string): string {
+    const profileRedacted = launchMessage.split(profileDir).join("[profile-path-redacted]");
+    const homeRedacted = profileRedacted.split(homedir()).join("[home-path-redacted]");
+    return homeRedacted
+      .replace(/\/Users\/[^)\s'"]+/g, "[path-redacted]")
+      .replace(/\/private\/tmp\/[^)\s'"]+/g, "[path-redacted]")
+      .replace(/\/var\/folders\/[^)\s'"]+/g, "[path-redacted]")
+      .replace(/[A-Za-z]:\\Users\\[^)\s'"]+/g, "[path-redacted]");
   }
 
   private async safeManagedPageTitle(
@@ -6134,6 +6551,34 @@ export class BrowserManager {
     return stable;
   }
 
+  private syncTargetsAfterAction(managed: ManagedSession, openerTargetId: string): void {
+    try {
+      const existingPages = new Set(managed.targets.listPageEntries().map((entry) => entry.page));
+      managed.targets.syncPages(managed.context.pages(), {
+        newTargetMetadataForPage: (candidatePage): TargetOwnershipMetadata | undefined => {
+          if (existingPages.has(candidatePage)) {
+            return undefined;
+          }
+          const url = this.safePageUrl(candidatePage, "BrowserManager.syncTargetsAfterAction");
+          return {
+            openerTargetId,
+            lifecycleState: "open",
+            popupKind: inferTargetPopupKind({ url }),
+            ownershipSource: "action_sync",
+            ...(url ? { safeUrlSummary: buildSafeTargetUrlSummary(url) } : {})
+          };
+        }
+      });
+    } catch (error) {
+      this.logger.warn("targets.action_sync.failed", {
+        sessionId: managed.sessionId,
+        data: {
+          message: error instanceof Error ? error.message : "Unknown target sync failure"
+        }
+      });
+    }
+  }
+
   private async captureScreenshotViaCdp(
     managed: ManagedSession,
     page: Page,
@@ -6297,6 +6742,240 @@ export class BrowserManager {
     });
   }
 
+  private requireExplicitCdpProfileId(profile: string): string {
+    const profileId = sanitizeSessionProfileId(profile);
+    if (RESERVED_CDP_PROFILE_IDS.has(profileId)) {
+      throw new Error("Explicit CDP profiles must use a named non-default OpenDevBrowser profile.");
+    }
+    return profileId;
+  }
+
+  private async readExplicitCdpProfile(profile: string): Promise<SessionProfileRecord | null> {
+    const profileId = sanitizeSessionProfileId(profile);
+    const cachePaths = await resolveCachePaths(this.worktree, profileId);
+    const registry = createSessionProfileRegistry(cachePaths.profileRegistryDir);
+    return registry.read(profileId);
+  }
+
+  private async resolveExplicitCdpProfile(profile: string): Promise<ResolvedExplicitCdpProfile> {
+    const profileId = this.requireExplicitCdpProfileId(profile);
+    const cachePaths = await resolveCachePaths(this.worktree, profileId);
+    const registry = createSessionProfileRegistry(cachePaths.profileRegistryDir);
+    const record = registry.read(profileId);
+    if (!record) {
+      throw new Error(`No OpenDevBrowser CDP profile record exists for profile "${profileId}". Run cdp-profile start first.`);
+    }
+    const wsEndpoint = await this.requireLiveExplicitCdpProfileEndpoint(record);
+    await this.requireExplicitCdpLaunchToken(record, cachePaths.profileDir);
+    const lease = record.lease;
+    if (!lease?.pid || !lease.port) {
+      throw new Error("Explicit CDP profile record is missing a live OpenDevBrowser lease. Run cdp-profile start again.");
+    }
+    if (!isExplicitCdpProcessOwnedByProfile(lease.pid, cachePaths.profileDir, lease.port)) {
+      throw new Error("Recorded OpenDevBrowser CDP profile process could not be verified as profile-owned. Run cdp-profile start again.");
+    }
+    return { record, wsEndpoint };
+  }
+
+  private async requireLiveExplicitCdpProfileEndpoint(record: SessionProfileRecord): Promise<string> {
+    if (record.kind !== "explicit_cdp_profile" || record.scope !== "explicit_local_cdp") {
+      throw new Error("Refusing CDP profile attach because the registry record is not an explicit local CDP profile.");
+    }
+    const endpoint = record.endpoint;
+    const lease = record.lease;
+    if (!endpoint || !lease?.pid || !lease.port) {
+      throw new Error("Explicit CDP profile record is missing a live OpenDevBrowser lease. Run cdp-profile start again.");
+    }
+    if (lease.port !== endpoint.port) {
+      throw new Error("Explicit CDP profile lease does not match the recorded endpoint. Run cdp-profile start again.");
+    }
+    if (!isProcessAlive(lease.pid)) {
+      throw new Error("Recorded OpenDevBrowser CDP profile process is no longer running. Run cdp-profile start again.");
+    }
+    const currentEndpoint = await probeCdpWsEndpoint(endpoint.port);
+    if (!currentEndpoint) {
+      throw new Error("Recorded OpenDevBrowser CDP profile endpoint is not live. Run cdp-profile start again.");
+    }
+    ensureLocalEndpoint(currentEndpoint, this.config.security.allowNonLocalCdp);
+    return currentEndpoint;
+  }
+
+  private explicitCdpLaunchTokenPath(profileDir: string): string {
+    return join(profileDir, CDP_PROFILE_LAUNCH_TOKEN_FILE);
+  }
+
+  private async writeExplicitCdpLaunchToken(
+    profileDir: string,
+    token: ExplicitCdpLaunchTokenProof
+  ): Promise<void> {
+    await writeFile(
+      this.explicitCdpLaunchTokenPath(profileDir),
+      `${JSON.stringify(token, null, 2)}\n`,
+      { encoding: "utf8", mode: 0o600 }
+    );
+  }
+
+  private async deleteExplicitCdpLaunchToken(profileDir: string): Promise<void> {
+    try {
+      await unlink(this.explicitCdpLaunchTokenPath(profileDir));
+    } catch (error) {
+      if (isNodeErrno(error, "ENOENT")) {
+        return;
+      }
+      this.logger.warn("cdp.profile_launch_token.cleanup_failed", {
+        data: {
+          errorCode: isNodeErrnoWithCode(error) ? error.code : "unknown"
+        }
+      });
+    }
+  }
+
+  private async requireExplicitCdpLaunchToken(
+    record: SessionProfileRecord,
+    profileDir: string
+  ): Promise<void> {
+    const token = await this.readExplicitCdpLaunchToken(profileDir);
+    if (!token || !this.explicitCdpLaunchTokenMatches(record, token)) {
+      throw new Error("Recorded OpenDevBrowser CDP profile launch token does not match the live lease. Refusing to trust this browser.");
+    }
+  }
+
+  private async readExplicitCdpLaunchToken(profileDir: string): Promise<ExplicitCdpLaunchTokenProof | null> {
+    try {
+      const raw = await readFile(this.explicitCdpLaunchTokenPath(profileDir), "utf8");
+      const parsed = JSON.parse(raw) as unknown;
+      return this.isExplicitCdpLaunchTokenProof(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private explicitCdpLaunchTokenMatches(
+    record: SessionProfileRecord,
+    token: ExplicitCdpLaunchTokenProof
+  ): boolean {
+    const lease = record.lease;
+    const endpoint = record.endpoint;
+    if (!lease || !endpoint) {
+      return false;
+    }
+    return token.profileId === record.profileId
+      && token.launchTokenId === lease.launchTokenId
+      && token.port === lease.port
+      && token.port === endpoint.port
+      && (typeof lease.pid !== "number" || token.pid === lease.pid);
+  }
+
+  private isExplicitCdpLaunchTokenProof(value: unknown): value is ExplicitCdpLaunchTokenProof {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return false;
+    }
+    const candidate = value as Record<string, unknown>;
+    return candidate.version === 1
+      && typeof candidate.profileId === "string"
+      && typeof candidate.launchTokenId === "string"
+      && typeof candidate.port === "number"
+      && Number.isInteger(candidate.port)
+      && candidate.port > 0
+      && (candidate.pid === undefined || typeof candidate.pid === "number")
+      && typeof candidate.createdAt === "string";
+  }
+
+  private async attachCdpTargetOwnership(managed: ManagedSession): Promise<void> {
+    const browserWithSession = managed.browser as unknown as {
+      newBrowserCDPSession?: () => Promise<CdpTargetOwnershipSession>;
+    };
+    if (typeof browserWithSession.newBrowserCDPSession !== "function") {
+      return;
+    }
+    try {
+      const session = await browserWithSession.newBrowserCDPSession.call(managed.browser);
+      const graph = new CdpTargetOwnershipGraph(session, () => {
+        this.reconcileCdpTargetOwnership(managed);
+      });
+      await graph.start();
+      managed.cdpTargetOwnership = graph;
+      this.reconcileCdpTargetOwnership(managed);
+    } catch (error) {
+      this.logger.warn("cdp.target_ownership.unavailable", {
+        sessionId: managed.sessionId,
+        data: {
+          error: error instanceof Error ? error.message : "Unknown CDP Target ownership setup failure"
+        }
+      });
+    }
+  }
+
+  private reconcileCdpTargetOwnership(managed: ManagedSession): void {
+    const graph = managed.cdpTargetOwnership;
+    if (!graph) {
+      return;
+    }
+    const entries = graph.entries().filter((entry) => entry.lifecycleState === "open");
+    const cdpToTarget = this.mapCdpTargetIds(managed);
+    for (const target of managed.targets.listPageEntries()) {
+      const current = managed.targets.getTargetMetadata(target.targetId);
+      const entry = this.findCdpTargetEntryForPage(target.page, current, entries, cdpToTarget);
+      if (!entry) {
+        continue;
+      }
+      const openerTargetId = entry.openerCdpTargetId ? cdpToTarget.get(entry.openerCdpTargetId) : undefined;
+      managed.targets.mergeTargetMetadata(target.targetId, metadataFromCdpTargetEntry(entry, openerTargetId));
+      cdpToTarget.set(entry.cdpTargetId, target.targetId);
+    }
+  }
+
+  private mapCdpTargetIds(managed: ManagedSession): Map<string, string> {
+    const cdpToTarget = new Map<string, string>();
+    for (const target of managed.targets.listPageEntries()) {
+      const metadata = managed.targets.getTargetMetadata(target.targetId);
+      if (metadata?.cdpTargetId) {
+        cdpToTarget.set(metadata.cdpTargetId, target.targetId);
+      }
+    }
+    return cdpToTarget;
+  }
+
+  private findCdpTargetEntryForPage(
+    page: Page,
+    metadata: TargetOwnershipMetadata | null,
+    entries: CdpTargetOwnershipEntry[],
+    cdpToTarget: Map<string, string>
+  ): CdpTargetOwnershipEntry | null {
+    if (metadata?.cdpTargetId) {
+      return entries.find((entry) => entry.cdpTargetId === metadata.cdpTargetId) ?? null;
+    }
+    const url = this.safePageUrl(page, "BrowserManager.reconcileCdpTargetOwnership");
+    if (!url) {
+      return null;
+    }
+    const matches = entries.filter((entry) => (
+      entry.type === "page"
+      && entry.url === url
+      && !cdpToTarget.has(entry.cdpTargetId)
+    ));
+    return matches.length === 1 ? matches[0] ?? null : null;
+  }
+
+  private async recoverOrRejectExplicitCdpLease(
+    registry: ReturnType<typeof createSessionProfileRegistry>,
+    record: SessionProfileRecord | null,
+    profileId?: string
+  ): Promise<void> {
+    const lease = record?.lease ?? (profileId ? registry.readLease(profileId) : null);
+    const safeProfileId = record?.profileId ?? profileId;
+    if (!lease || !safeProfileId) {
+      return;
+    }
+    const pidAlive = typeof lease.pid === "number" && isProcessAlive(lease.pid);
+    const portAlive = typeof lease.port === "number"
+      && await probeCdpWsEndpoint(lease.port) !== null;
+    if (pidAlive || portAlive) {
+      throw new Error(`CDP profile "${safeProfileId}" is already running. Use cdp-profile status or cdp-profile stop before starting it again.`);
+    }
+    registry.releaseLease(safeProfileId, lease.launchTokenId);
+  }
+
   private async resolveWsEndpoint(options: ConnectOptions): Promise<string> {
     if (options.wsEndpoint) {
       ensureLocalEndpoint(options.wsEndpoint, this.config.security.allowNonLocalCdp);
@@ -6328,12 +7007,14 @@ export class BrowserManager {
     mode: BrowserMode,
     reportedWsEndpoint?: string,
     relayPort?: number,
-    authOptions?: BrowserAuthSessionOptions
+    authOptions?: BrowserAuthSessionOptions,
+    explicitCdpProfile?: SessionProfileRecord
   ): Promise<BrowserSessionStartResult> {
     this.assertGoogleAuthIntentAllowedForMode(mode, authOptions?.googleAuthIntent);
     let browser: Browser | null = null;
     const connectAttempts = mode === "extension" ? 3 : 1;
     const sanitizedEndpoint = this.sanitizeWsEndpointForOutput(connectWsEndpoint);
+    const connectionLabel = mode === "extension" ? "Relay /cdp" : "Direct CDP";
     const chromium = await loadChromium();
     for (let attempt = 1; attempt <= connectAttempts; attempt += 1) {
       const connectStart = Date.now();
@@ -6342,8 +7023,9 @@ export class BrowserManager {
         break;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        const safeMessage = sanitizeCdpConnectErrorMessage(message);
         if (message.includes("401") || message.toLowerCase().includes("unauthorized")) {
-          throw new Error("Relay /cdp rejected the connection (unauthorized). Check relayToken configuration and ensure clients use the current token.");
+          throw new Error(`${connectionLabel} rejected the connection (unauthorized). Check relayToken configuration and ensure clients use the current token.`);
         }
         const staleExtensionTab = mode === "extension" && isExtensionStaleTabAttachError(message);
         const reconnectableExtensionDisconnect = mode === "extension" && isExtensionRelayDisconnectError(message);
@@ -6357,13 +7039,13 @@ export class BrowserManager {
           continue;
         }
         throw new Error(
-          `Relay /cdp connectOverCDP failed after ${Date.now() - connectStart}ms (mode=${mode}, endpoint=${sanitizedEndpoint}): ${message}`,
+          `${connectionLabel} connectOverCDP failed after ${Date.now() - connectStart}ms (mode=${mode}, endpoint=${sanitizedEndpoint}): ${safeMessage}`,
           { cause: error }
         );
       }
     }
     if (!browser) {
-      throw new Error(`Relay /cdp connectOverCDP failed (mode=${mode}, endpoint=${sanitizedEndpoint}).`);
+      throw new Error(`${connectionLabel} connectOverCDP failed (mode=${mode}, endpoint=${sanitizedEndpoint}).`);
     }
     try {
       const contexts = browser.contexts();
@@ -6376,6 +7058,7 @@ export class BrowserManager {
       }
 
       const sessionId = randomUUID();
+      const cachePaths = await resolveCachePaths(this.worktree, this.config.profile);
       const targets = new TargetManager();
       const pages = context.pages();
 
@@ -6425,9 +7108,17 @@ export class BrowserManager {
         this.config.flags
       );
       const warnings = formatTier1Warnings(fingerprint.tier1);
+      const sessionProfile = this.createConnectedSessionProfileSummary({
+        cachePaths,
+        mode,
+        wsEndpoint: reportedWsEndpoint ?? connectWsEndpoint,
+        launchTokenId: sessionId,
+        explicitCdpProfile
+      });
       const authProvenance = this.createInitialAuthProvenance(
         mode === "extension" ? "live_extension_profile" : "cdp_connected_profile",
-        authOptions?.googleAuthIntent
+        authOptions?.googleAuthIntent,
+        sessionProfile
       );
 
       const managed: ManagedSession = {
@@ -6460,6 +7151,7 @@ export class BrowserManager {
       this.attachContinuousFingerprintSignals(managed);
       this.attachTrackers(managed);
       this.attachRefInvalidation(managed);
+      await this.attachCdpTargetOwnership(managed);
 
       if (!fingerprint.tier1.ok) {
         this.logger.warn("fingerprint.tier1.mismatch", {
@@ -6607,6 +7299,154 @@ function isExtensionRelaySingleClientError(detail: string): boolean {
 }
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function reserveLocalPort(): Promise<number> {
+  return new Promise((resolvePort, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : 0;
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        if (port <= 0) {
+          reject(new Error("Failed to reserve a local CDP port."));
+          return;
+        }
+        resolvePort(port);
+      });
+    });
+  });
+}
+
+async function waitForCdpWsEndpoint(port: number, timeoutMs: number): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const endpoint = await probeCdpWsEndpoint(port);
+    if (endpoint) {
+      return endpoint;
+    }
+    await delay(CDP_PROFILE_START_POLL_MS);
+  }
+  throw new Error("Timed out waiting for explicit CDP profile remote debugging endpoint.");
+}
+
+async function probeCdpWsEndpoint(port: number): Promise<string | null> {
+  let data: { webSocketDebuggerUrl?: string };
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/json/version`);
+    if (!response.ok) {
+      return null;
+    }
+    data = await response.json() as { webSocketDebuggerUrl?: string };
+  } catch {
+    return null;
+  }
+  if (!data.webSocketDebuggerUrl) {
+    return null;
+  }
+  ensureLocalEndpoint(data.webSocketDebuggerUrl, false);
+  return data.webSocketDebuggerUrl;
+}
+
+async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) {
+      return;
+    }
+    await delay(CDP_PROFILE_STOP_POLL_MS);
+  }
+  throw new Error("Timed out waiting for OpenDevBrowser-owned CDP browser process to exit.");
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (isNodeErrno(error, "ESRCH")) {
+      return false;
+    }
+    if (isNodeErrno(error, "EPERM")) {
+      return true;
+    }
+    throw error;
+  }
+}
+
+function isExplicitCdpProcessOwnedByProfile(
+  pid: number,
+  profileDir: string,
+  port: number
+): boolean {
+  const commandLine = readProcessCommandLine(pid);
+  if (!commandLine) {
+    return false;
+  }
+  return commandLineContainsFlag(commandLine, "--remote-debugging-port", String(port))
+    && commandLineContainsFlag(commandLine, "--user-data-dir", profileDir);
+}
+
+function readProcessCommandLine(pid: number): string | null {
+  if (process.platform === "win32") {
+    return null;
+  }
+  try {
+    return execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+      encoding: "utf8",
+      timeout: 1000,
+      maxBuffer: 16_384
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function commandLineContainsFlag(
+  commandLine: string,
+  flag: string,
+  value: string
+): boolean {
+  return commandLine.includes(`${flag}=${value}`)
+    || commandLine.includes(`${flag} ${value}`)
+    || commandLine.includes(`${flag}="${value}"`)
+    || commandLine.includes(`${flag}='${value}'`);
+}
+
+async function terminateProcessBestEffort(pid: number | undefined, timeoutMs: number): Promise<void> {
+  if (!pid || !isProcessAlive(pid)) {
+    return;
+  }
+  try {
+    process.kill(pid, "SIGTERM");
+    await waitForProcessExit(pid, timeoutMs);
+  } catch {
+    return;
+  }
+}
+
+function isNodeErrno(error: unknown, code: string): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && (error as { code?: unknown }).code === code;
+}
+
+function isNodeErrnoWithCode(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === "object"
+    && error !== null
+    && typeof (error as { code?: unknown }).code === "string";
+}
+
+function sanitizeCdpConnectErrorMessage(message: string): string {
+  return message
+    .replace(CDP_CONNECT_ERROR_URL_PATTERN, (match) => sanitizeWsEndpoint(match))
+    .replace(CDP_CONNECT_ERROR_SECRET_PATTERN, (_match, key: string) => `${key}=[REDACTED]`);
+}
 
 function truncateText(value: string, maxChars: number): { text: string; truncated: boolean } {
   if (value.length <= maxChars) {

@@ -18,7 +18,7 @@ OpenDevBrowser provides four primary runtime entry points:
 - **Automation platform layer**: provider runtime, macro resolver, tiered fingerprint controls, and combined debug trace workflows shared across tool/CLI/daemon surfaces.
 
 Current automation surface sizes:
-- CLI commands: `77`
+- CLI commands: `78`
 - Plugin tools: `70`
 - `/ops` command names: `59`
 - `/canvas` command names: `41`
@@ -307,6 +307,7 @@ sequenceDiagram
 - `managed`: launch and manage a Chrome instance via Playwright (headed by default).
 - `cdpConnect`: attach to an existing Chrome via CDP (`/json/version`).
 - `connect` routing: local relay WS endpoints (for example `ws://127.0.0.1:<relayPort>` or `/ops`) are normalized to `/ops` and routed via the relay (`extension` mode). Legacy `/cdp` requires `--extension-legacy`.
+- `cdp-profile start --profile <name>` starts an OpenDevBrowser-owned non-default local Chrome profile with remote debugging. `connect --profile <name>` attaches only to this registry-backed profile lane; raw endpoint attach remains `profileScope=unknown`.
 - Launch defaults to `extension` when available; managed/CDPConnect require explicit user choice.
 - `--google-auth-intent user-owned` is explicit user-owned Google OAuth intent. It requires extension `/ops` against the live Chrome profile and fails closed for `--no-extension`, `--headless`, `--extension-legacy`, and direct CDP.
 - Managed and `cdpConnect` make a best-effort attempt to copy readable system Chrome-family cookies unless `--disable-system-cookie-bootstrap` is set. Google-sensitive cookies are skipped by default unless `--allow-google-cookie-bootstrap` is explicitly set for diagnostics. Copied cookies are not Google auth proof.

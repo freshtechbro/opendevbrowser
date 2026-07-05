@@ -69,6 +69,8 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
   const challengeOrchestrator = new ChallengeOrchestrator(challengeConfig);
   baseManager.setChallengeOrchestrator(challengeOrchestrator);
   manager.setChallengeOrchestrator(challengeOrchestrator);
+  const relay = new RelayServer({ discoveryPort: config.discoveryPort });
+  relay.setToken(config.relayToken);
   const runner = new ScriptRunner(manager);
   const skills = new SkillLoader(cacheRoot, config.skillPaths);
   const agentInbox = new AgentInbox(cacheRoot);
@@ -82,10 +84,9 @@ export function createOpenDevBrowserCore(options: CoreOptions): OpenDevBrowserCo
     config,
     manager,
     challengeConfig,
-    challengeOrchestrator
+    challengeOrchestrator,
+    relayStatus: () => relay.status()
   });
-  const relay = new RelayServer({ discoveryPort: config.discoveryPort });
-  relay.setToken(config.relayToken);
   relay.setStoreAgentPayloadHandler(async (command) => {
     if (!command.payload) {
       return {

@@ -28,7 +28,7 @@ First-contact note:
 
 ---
 
-## CLI Command Inventory (77)
+## CLI Command Inventory (78)
 
 ### Install and runtime management (10)
 - `install` - Install the plugin.
@@ -42,9 +42,10 @@ First-contact note:
 - `run` - Execute a JSON script in a single process.
 - `artifacts` - Manage workflow artifact lifecycle.
 
-### Session, connection, and workflow wrappers (11)
+### Session, connection, and workflow wrappers (12)
 - `launch` - Launch a managed browser session via daemon.
 - `connect` - Connect to an existing browser via daemon.
+- `cdp-profile` - Manage OpenDevBrowser-owned local CDP profiles.
 - `disconnect` - Disconnect a daemon session.
 - `status` - Get daemon or session status.
 - `status-capabilities` - Inspect runtime capability discovery for the host and an optional session.
@@ -549,6 +550,7 @@ Auth and policy:
 - `managed`: `launch --no-extension` (or explicit managed launch flags).
 - `extension-legacy`: `launch --extension-legacy` or `connect --extension-legacy` through `/cdp`.
 - `cdpConnect`: direct `connect --ws-endpoint ...` or `connect --host ... --cdp-port ...`.
+- `explicit_cdp_profile`: `cdp-profile start --profile <name>` followed by `connect --profile <name>` for OpenDevBrowser-owned non-default local CDP profiles.
 - User-owned Google OAuth: `launch --google-auth-intent user-owned --extension-only --wait-for-extension` or an `/ops` relay connect. This requires extension /ops and fails closed for managed, headless, legacy `/cdp`, and direct CDP.
 
 ### Key mode flags
@@ -573,13 +575,13 @@ Auth and policy:
 - Annotation transport flag: `annotate --transport auto|direct|relay`.
 - Canvas wrapper flags: `canvas --command <canvas.*> --params|--params-file [--timeout-ms]`.
 - Macro execute timeout flag: `macro-resolve --timeout-ms <ms>` extends daemon-call timeout for slow execute runs.
-- Workflow and macro execute browser options: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `inspiredesign harvest`, and `macro-resolve --execute` accept `--browser-mode auto|extension|managed`; `extension` reuses relay-backed browser state, while `managed` runs a deterministic managed browser.
+- Workflow and macro execute browser options: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `inspiredesign harvest`, and `macro-resolve --execute` accept `--browser-mode auto|extension|managed`; `extension` reuses relay-backed browser state, while `managed` runs a deterministic managed browser. Workflow `--profile <name>` selects a named managed profile for provider browser fallback; registry-backed explicit CDP profiles use `cdp-profile start` plus `connect --profile` for browser/session primitives until workflows expose an explicit-CDP transport selector.
 - Workflow and macro execute cookie options: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `inspiredesign harvest`, and `macro-resolve --execute` accept `--use-cookies` and `--cookie-policy-override off|auto|required` (`--cookie-policy` alias) so provider macros can require observable cookie-backed browser sessions.
 - Workflow and macro execute override flags: `research run`, `shopping run`, `product-video run`, `inspiredesign run`, `inspiredesign harvest`, and `macro-resolve --execute` accept `--challenge-automation-mode off|browser|browser_with_helper`, which maps to `challengeAutomationMode` with `run > session > config` precedence.
 - Inspiredesign harvest flags: `--query`, repeatable `--provider`, `--max-references 1..10`, and `--visual-evidence off|auto|required`. Harvest requires `--query` or at least one `--url`, keeps the daemon method as `inspiredesign.run`, defaults to `mode=path`, `visualEvidence=required`, and `maxReferences=5`, and keeps explicit `--url` references before discovered references.
 - Before trusting daemon-backed `inspiredesign harvest` results, run `npx opendevbrowser status --daemon --output-format json` and require `data.fingerprintCurrent === true`; restart or isolate the daemon when it is false or missing.
-- Inspiredesign harvest supports browser-native site recipes for visually driven sites. `--provider social/pinterest` selects the Pinterest recipe and should be run with extension mode, cookies, and `--cookie-policy required` when logged-in search is required. Query-based Pinterest harvests become product-ready only through query-discovered canonical `/pin/{id}/` references plus manifest-backed first-party pin-media bytes; login/challenge and search-shell diagnostics are recovery paths, not product-ready evidence. Compatible Pinterest URL recovery can run as `--provider social/pinterest --url <pinterest-url>` without `--query`; use one canonical `/pin/{id}/` URL per harvest when validating design-ready pin media. Generic provider plus URL recovery without query remains rejected. Pinterest is not registered as a default full social provider.
-- Extension-mode canonical Pinterest pin-media harvest opens the exact canonical pin in the extension before extracting persisted first-party bytes. This is the default product path for reliable image, GIF, and video pin media capture.
+- Inspiredesign harvest supports browser-native site recipes for visually driven sites. `--provider social/pinterest` selects the Pinterest recipe and should use a dedicated managed headed profile with cookies and `--cookie-policy required` for non-Google logged-in search; use extension `/ops` when live active-tab reuse is required. Registry-backed explicit CDP profiles are available for browser/session primitives, but provider workflows do not yet expose an explicit-CDP transport selector. Query-based Pinterest harvests become product-ready only through query-discovered canonical `/pin/{id}/` references plus manifest-backed first-party pin-media bytes; login/challenge and search-shell diagnostics are recovery paths, not product-ready evidence. Compatible Pinterest URL recovery can run as `--provider social/pinterest --url <pinterest-url>` without `--query`; use one canonical `/pin/{id}/` URL per harvest when validating design-ready pin media. Generic provider plus URL recovery without query remains rejected. Pinterest is not registered as a default full social provider.
+- Canonical Pinterest pin-media harvest opens the exact canonical pin in the active managed or extension workflow session before extracting persisted first-party bytes. Extension `/ops` remains the best live-tab reuse path, but it is no longer the only intended logged-in Pinterest lane.
 - Inspiredesign harvest primary capture is pin-media-first for Pinterest: proven image, GIF, and video pins require manifest-backed pin-media evidence for product-ready canonical pin-media harvests. Screenshot evidence and screencast evidence remain useful capture or motion lanes, but they are not substitutes for `evidenceAuthority=pin_media_ready`. Video posters remain still-image fallback cues, and DOM/clone/deep capture is disabled for Pinterest harvest. Remote DOM media URLs are not product-ready unless persisted first-party bytes appear in `pin-media-index.json`.
 - Inspiredesign capture-mode resolution preserves the existing explicit-URL override: `inspiredesign run` forces `captureMode=deep` for any explicit `--url`, while `inspiredesign harvest` forces deep capture for non-Pinterest explicit `--url` references even when `--capture-mode off` is requested. Pinterest-only harvest discovery and compatible Pinterest URL recovery force `captureMode=off` even when `--capture-mode deep` is requested.
 - Inspiredesign harvest artifacts: `evidence.json`, `visual-evidence.json`, `screenshot-index.json`, `motion-evidence.json`, `pin-media-evidence.json`, `pin-media-index.json`, `media-analysis.json`, `ranked-references.json`, `discovery-diagnostics.json` for query harvests, `bundle-manifest.json`, and `meta-prompt.md` are emitted with screenshot PNGs under `visual-evidence/<referenceId>/viewport.png`, motion artifacts under `motion-evidence/<referenceId>/` when video evidence is captured, and Pinterest pin media under `pin-media-evidence/<referenceId>/main.*`, `pin-media-evidence/<referenceId>/video.mp4`, or `pin-media-evidence/<referenceId>/poster.*` when canonical pin media proof is captured. `discovery-diagnostics.json` records accepted and rejected URL counts, blocker diagnostics, and recovery actions. JSON remains bounded and artifact-relative with paths, hashes, byte counts, viewport or media facts when available, reference id and URL, warnings, limitations, and non-goals.

@@ -270,4 +270,205 @@ describe("TargetManager", () => {
     expect(manager.getTargetIdByName("retained")).toBeNull();
     expect(manager.getActiveTargetId()).toBeNull();
   });
+
+  it("tracks popup ownership metadata and removes it with closed targets", async () => {
+    const manager = new TargetManager();
+    const opener = createStubPage("opener");
+    const popup = createStubPage("popup", {
+      url: vi.fn(async () => "https://accounts.example.com/oauth/private?token=redacted")
+    });
+    const openerId = manager.registerPage(opener as never);
+    const popupId = manager.registerPage(popup as never, undefined, {
+      openerTargetId: openerId,
+      lifecycleState: "open",
+      popupKind: "oauth_or_account_chooser",
+      ownershipSource: "cdp_target_event",
+      safeUrlSummary: {
+        scheme: "https",
+        host: "accounts.example.com",
+        origin: "https://accounts.example.com"
+      }
+    });
+
+    const listed = await manager.listTargets(false);
+    expect(listed).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        targetId: popupId,
+        openerTargetId: openerId,
+        lifecycleState: "open",
+        popupKind: "oauth_or_account_chooser",
+        ownershipSource: "cdp_target_event"
+      })
+    ]));
+    expect(listed.find((target) => target.targetId === popupId)?.url).toBeUndefined();
+    expect(listed.find((target) => target.targetId === popupId)?.safeUrlSummary).toBeUndefined();
+    expect(JSON.stringify(listed)).not.toContain("token=redacted");
+
+    await expect(manager.listTargets(true)).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        targetId: popupId,
+        safeUrlSummary: {
+          scheme: "https",
+          host: "accounts.example.com",
+          origin: "https://accounts.example.com"
+        }
+      })
+    ]));
+
+    await manager.closeTarget(popupId);
+    expect(manager.getTargetMetadata(popupId)).toBeNull();
+  });
+
+  it("sets and merges target metadata with default ownership and formatted optional fields", async () => {
+    const manager = new TargetManager();
+    const page = createStubPage("metadata");
+    const targetId = manager.registerPage(page as never);
+
+    expect(() => manager.setTargetMetadata("missing", {
+      ownershipSource: "manual"
+    })).toThrow("Unknown targetId: missing");
+    expect(() => manager.mergeTargetMetadata("missing", {
+      ownershipSource: "manual"
+    })).toThrow("Unknown targetId: missing");
+
+    manager.mergeTargetMetadata(targetId, {
+      cdpTargetId: "cdp-1",
+      openerCdpTargetId: "cdp-root",
+      openerTargetId: "root",
+      lifecycleState: "open",
+      popupKind: "popup",
+      safeUrlSummary: {
+        scheme: "https",
+        host: "example.com",
+        origin: "https://example.com"
+      }
+    });
+
+    expect(manager.getTargetMetadata(targetId)).toEqual({
+      ownershipSource: "manual",
+      cdpTargetId: "cdp-1",
+      openerCdpTargetId: "cdp-root",
+      openerTargetId: "root",
+      lifecycleState: "open",
+      popupKind: "popup",
+      safeUrlSummary: {
+        scheme: "https",
+        host: "example.com",
+        origin: "https://example.com"
+      }
+    });
+    await expect(manager.listTargets(false)).resolves.toEqual([
+      expect.objectContaining({
+        cdpTargetId: "cdp-1",
+        openerCdpTargetId: "cdp-root",
+        openerTargetId: "root",
+        lifecycleState: "open",
+        popupKind: "popup",
+        ownershipSource: "manual"
+      })
+    ]);
+    await expect(manager.listTargets(true)).resolves.toEqual([
+      expect.objectContaining({
+        safeUrlSummary: {
+          scheme: "https",
+          host: "example.com",
+          origin: "https://example.com"
+        }
+      })
+    ]);
+
+    manager.setTargetMetadata(targetId, {
+      ownershipSource: "action_sync"
+    });
+
+    await expect(manager.listTargets(false)).resolves.toEqual([
+      expect.objectContaining({
+        ownershipSource: "action_sync"
+      })
+    ]);
+  });
+
+  it("carries metadata forward when rebinding to a page that already had metadata", () => {
+    const manager = new TargetManager();
+    const primaryPage = createStubPage("primary");
+    const replacementPage = createStubPage("replacement");
+    const primaryTargetId = manager.registerPage(primaryPage as never);
+    const replacementTargetId = manager.registerPage(replacementPage as never, undefined, {
+      cdpTargetId: "replacement-cdp",
+      lifecycleState: "open",
+      ownershipSource: "cdp_target_event"
+    });
+
+    manager.replacePage(primaryTargetId, replacementPage as never);
+
+    expect(manager.getTargetMetadata(primaryTargetId)).toEqual({
+      cdpTargetId: "replacement-cdp",
+      lifecycleState: "open",
+      ownershipSource: "cdp_target_event"
+    });
+    expect(manager.getTargetMetadata(replacementTargetId)).toBeNull();
+  });
+
+  it("lets replacement page metadata win when rebinding over stale metadata", () => {
+    const manager = new TargetManager();
+    const primaryPage = createStubPage("primary");
+    const replacementPage = createStubPage("replacement");
+    const primaryTargetId = manager.registerPage(primaryPage as never, undefined, {
+      cdpTargetId: "stale-cdp",
+      lifecycleState: "open",
+      ownershipSource: "manual"
+    });
+    const replacementTargetId = manager.registerPage(replacementPage as never, undefined, {
+      cdpTargetId: "replacement-cdp",
+      openerCdpTargetId: "root-cdp",
+      lifecycleState: "open",
+      popupKind: "popup",
+      ownershipSource: "cdp_target_event"
+    });
+
+    manager.replacePage(primaryTargetId, replacementPage as never);
+
+    expect(manager.getTargetMetadata(primaryTargetId)).toEqual({
+      cdpTargetId: "replacement-cdp",
+      openerCdpTargetId: "root-cdp",
+      lifecycleState: "open",
+      popupKind: "popup",
+      ownershipSource: "cdp_target_event"
+    });
+    expect(manager.getTargetMetadata(replacementTargetId)).toBeNull();
+  });
+
+  it("applies sync metadata only to new pages and cleans stale metadata", () => {
+    const manager = new TargetManager();
+    const retained = createStubPage("retained");
+    const removed = createStubPage("removed");
+    const popup = createStubPage("popup");
+    const retainedId = manager.registerPage(retained as never);
+    const removedId = manager.registerPage(removed as never, undefined, {
+      openerTargetId: retainedId,
+      lifecycleState: "open",
+      popupKind: "popup",
+      ownershipSource: "manual"
+    });
+
+    manager.syncPages([retained as never, popup as never], {
+      newTargetMetadata: {
+        openerTargetId: retainedId,
+        lifecycleState: "open",
+        popupKind: "popup",
+        ownershipSource: "action_sync"
+      }
+    });
+
+    const popupEntry = manager.listPageEntries().find((entry) => entry.page === (popup as never));
+    expect(manager.getTargetMetadata(retainedId)).toBeNull();
+    expect(manager.getTargetMetadata(removedId)).toBeNull();
+    expect(popupEntry?.targetId).toBeTruthy();
+    expect(manager.getTargetMetadata(popupEntry?.targetId ?? "")).toEqual({
+      openerTargetId: retainedId,
+      lifecycleState: "open",
+      popupKind: "popup",
+      ownershipSource: "action_sync"
+    });
+  });
 });

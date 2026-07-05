@@ -41,7 +41,12 @@ import type {
   ChallengeRuntimeHandle,
   SessionInspectorHandle
 } from "./manager-types";
-import type { ConnectOptions, LaunchOptions } from "./browser-manager";
+import type {
+  ConnectOptions,
+  ExplicitCdpProfileResult,
+  ExplicitCdpProfileStartOptions,
+  LaunchOptions
+} from "./browser-manager";
 import type { BrowserMode } from "./session-store";
 import type { TargetInfo } from "./target-manager";
 import type { ReactExport } from "../export/react-emitter";
@@ -258,6 +263,18 @@ export class OpsBrowserManager implements BrowserManagerLike {
 
   async connect(options: ConnectOptions): ReturnType<BrowserManagerLike["connect"]> {
     return this.base.connect(options);
+  }
+
+  async startExplicitCdpProfile(options: ExplicitCdpProfileStartOptions): Promise<ExplicitCdpProfileResult> {
+    return this.base.startExplicitCdpProfile(options);
+  }
+
+  async statusExplicitCdpProfile(profile: string): Promise<ExplicitCdpProfileResult> {
+    return this.base.statusExplicitCdpProfile(profile);
+  }
+
+  async stopExplicitCdpProfile(profile: string): Promise<ExplicitCdpProfileResult> {
+    return this.base.stopExplicitCdpProfile(profile);
   }
 
   async connectRelay(
