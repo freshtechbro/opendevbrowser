@@ -1,9 +1,9 @@
 # v0.0.40 Release Evidence
 
-Status: release prep complete; external publish pending
-Release date: 2026-07-06 UTC, pending final publish
+Status: npm and GitHub released; Chrome Web Store manual lane blocked on dashboard authentication
+Release date: 2026-07-06 UTC
 Tag: `v0.0.40`
-Release URL: pending
+Release URL: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.40`
 
 ## Scope
 
@@ -11,23 +11,25 @@ Tracks the `0.0.40` release cycle from local release preparation through npm pub
 
 ## Final Release State
 
-- npm package: pending
-- npm `latest`: pending
-- npm tarball shasum: pending
-- npm tarball integrity: pending
-- Release tag: pending
-- Tag target: pending
-- GitHub release: pending
-- Successful release workflow run: pending
-- Chrome Web Store: pending manual browser release or exact auth/session blocker.
+- npm package: `opendevbrowser@0.0.40` published.
+- npm `latest`: `0.0.40`.
+- npm tarball shasum: `47a2437ec3853e471b68eae3791207deb11e66dd`.
+- npm tarball integrity: `sha512-wG/PO9hI7mQEJFETjyDYqc+neWHqZS+YvTduK+haOemQN2ha9ZtoGZw51/Tk9hhdhr6Ih6W96iERkn/RG/zPPg==`.
+- Release tag: `v0.0.40`.
+- Tag target: `16e8bae0ca9766e8674ec28ef56005d22faa5712`.
+- GitHub release: published, not draft, not prerelease.
+- Successful release workflow run: `https://github.com/freshtechbro/opendevbrowser/actions/runs/28811136824`.
+- Chrome Web Store: blocked by browser-visible Google account chooser/auth requirement before upload controls.
 
 ## Release History
 
 - Release prep branch: `codex/release-0.0.40`.
 - Release prep base: `fe15388eae1ad260341877b2feb9d58da019f2d6`.
-- npm publish: pending local-auth publish for `opendevbrowser@0.0.40`.
-- GitHub release workflow: pending dispatch with `publish_npm=false`, `publish_github_release=true`, `draft_release=false`, and `run_release_live_gates=false`.
-- Chrome Web Store manual release: pending browser dashboard flow.
+- Release prep PR: `https://github.com/freshtechbro/opendevbrowser/pull/112`, merged at `2026-07-06T17:37:18Z`.
+- Release prep merge commit: `16e8bae0ca9766e8674ec28ef56005d22faa5712`.
+- npm publish: local-auth publish succeeded for `opendevbrowser@0.0.40`.
+- GitHub release workflow: dispatch succeeded with `publish_npm=false`, `publish_github_release=true`, `draft_release=false`, and `run_release_live_gates=false`.
+- Chrome Web Store manual release: attempted via browser, blocked by Google account chooser/auth requirement before upload controls.
 
 ## Version Alignment
 
@@ -107,15 +109,21 @@ Prepublish baseline captured before local release prep publish:
 - `git ls-remote --tags origin v0.0.40`: returned no refs.
 - `npm whoami`: authenticated successfully with identity redacted.
 
-Final duplicate-release recheck after release prep merge and immediately before `npm publish`: pending.
+Final duplicate-release recheck after release prep merge and immediately before `npm publish`: passed.
 
-Publish result: pending.
+Publish result: `npm publish --access public` succeeded with `+ opendevbrowser@0.0.40`.
+
+Post-publish registry verification:
+
+- Evidence path: `.omo/ulw-loop/release-0-0-40-2026-07-06/evidence/npm-registry-view-0.0.40.json`.
+- `npm view opendevbrowser@0.0.40 version dist-tags dist.shasum dist.integrity --json` returned version `0.0.40`, `latest` `0.0.40`, shasum `47a2437ec3853e471b68eae3791207deb11e66dd`, and integrity `sha512-wG/PO9hI7mQEJFETjyDYqc+neWHqZS+YvTduK+haOemQN2ha9ZtoGZw51/Tk9hhdhr6Ih6W96iERkn/RG/zPPg==`.
 
 ## Registry Consumer Smoke
 
-- Result: pending.
+- Result: passed.
 - Evidence path: `artifacts/release/v0.0.40/registry-consumer-smoke.json`.
 - Purpose: verify a registry consumer can install and smoke `opendevbrowser@0.0.40` from npm after publish.
+- Key checks: `success=true`, `version=0.0.40`, `installAttempts=1`, `helpAliasMatches=true`, `findItFastPresent=true`, `extensionDirExists=true`, `skillsDirExists=true`, and `versionMatches=true`.
 
 ## GitHub Release Evidence
 
@@ -131,29 +139,34 @@ gh workflow run release-public.yml \
   -F run_release_live_gates=false
 ```
 
-- Release URL exists for `v0.0.40`: pending.
-- Release is draft: pending.
-- Release is prerelease: pending.
-- Release published at: pending.
-- Tag `v0.0.40` points to: pending.
-- Release target commitish: pending.
-- Asset `opendevbrowser-extension.zip`: pending.
-- Asset `opendevbrowser-extension.zip.sha256`: pending.
-- Checksum verification: pending.
+- Release URL exists for `v0.0.40`: `https://github.com/freshtechbro/opendevbrowser/releases/tag/v0.0.40`.
+- Release is draft: `false`.
+- Release is prerelease: `false`.
+- Release published at: `2026-07-06T17:45:25Z`.
+- Tag `v0.0.40` points to: `16e8bae0ca9766e8674ec28ef56005d22faa5712`.
+- Release target commitish: `main`.
+- Asset `opendevbrowser-extension.zip`: uploaded, size `190671`, digest `sha256:9847e61c6a3886b3162039af3327496a38e737c3ad2113e90530c5afe6f29098`.
+- Asset `opendevbrowser-extension.zip.sha256`: uploaded, size `95`, digest `sha256:ee67ad29394603de4f6bedf21310a29cc6a82d31684c07d31eddc3788760ca30`.
+- Checksum verification: passed, `opendevbrowser-extension.zip: OK`.
 
 ## GitHub Workflow Evidence
 
-- Successful release workflow: pending.
-- Workflow job: pending.
-- Workflow head SHA: pending.
+- Successful release workflow: `https://github.com/freshtechbro/opendevbrowser/actions/runs/28811136824`.
+- Workflow job: release completed in `6m13s`.
+- Workflow head SHA: `16e8bae0ca9766e8674ec28ef56005d22faa5712`.
 - Workflow inputs: `release_ref=main`, `release_tag=v0.0.40`, `publish_npm=false`, `publish_github_release=true`, `draft_release=false`, `run_release_live_gates=false`.
+- Skipped steps were intentional by input: strict live release gates, npm package publish, and workflow registry consumer smoke. Local gates, local npm publish, and local registry smoke are recorded above.
 
 ## Chrome Web Store Release Lane
 
-- Status: pending manual browser flow.
+- Status: blocked by exact browser-visible authentication/session requirement.
 - Required artifact: GitHub release `opendevbrowser-extension.zip` for `v0.0.40`.
-- Required proof: redacted Chrome Web Store Developer Dashboard screenshot or action log showing uploaded/submitted version `0.0.40`, or an exact browser-visible auth/account/session blocker.
-- Secrets and private account identifiers must not appear in screenshots, logs, or copied JSON.
+- Required proof retained: redacted account-chooser screenshot and sanitized browser action log under `.omo/ulw-loop/release-0-0-40-2026-07-06/evidence/browser/`.
+- Browser-visible blocker: Google account chooser for `accounts.google.com/v3/signin/accountchooser` with `service=chromewebstore` before reaching Developer Dashboard upload controls.
+- Managed evidence run: isolated no-extension browser session captured OpenDevBrowser blocker `auth_required` with reason code `token_required`; `googleAuthIntent=none`, `authProof=none`, and Google-sensitive cookies skipped.
+- Real Chrome attempt: opening the Developer Dashboard package URL redirected to account chooser; macOS Computer Use could not bind the Chrome window and OS screencapture returned unusable black output, so no private logged-in Chrome screenshot was retained.
+- No Chrome Web Store upload or submit-for-review action was performed because an authenticated dashboard session was not available to this automation lane.
+- Secrets and private account identifiers were excluded: raw/private screenshots were removed, the retained screenshot is redacted, and scoped evidence scan found no token, secret, email, or Chrome profile database path.
 
 ## Out Of Scope For This Evidence Update
 
