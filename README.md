@@ -94,7 +94,7 @@ export CLAUDECODE_HOME="$ISOLATED_ROOT/claudecode-home"
 export AMP_CLI_HOME="$ISOLATED_ROOT/ampcli-home"
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.39.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.40.tgz
 npx --no-install opendevbrowser --help
 npx --no-install opendevbrowser help
 ```

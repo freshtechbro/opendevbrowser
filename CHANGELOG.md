@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.40] - 2026-07-06
+
+### Added
+- Added non-extension session parity so managed and CDP-connected sessions can share the same runtime capability surface without requiring the Chrome extension path.
+
+### Changed
+- Aligned release-facing package, lockfile, extension manifest, extension package metadata, and evidence docs for `0.0.40`.
+- Tightened workflow readiness and shopping-report gates so authority sidecars, compact output tokens, and product-readiness evidence stay aligned with runtime behavior.
+
+### Fixed
+- Hardened Codex bundled skill sync so OpenDevBrowser skills coalesce through the shared Agents root and avoid duplicate `opendevbrowser-*` discovery entries.
+- Closed workflow-readiness review blockers around output authority, evidence gates, and stale runtime assertions.
+
 ## [0.0.39] - 2026-07-02
 
 ### Changed
@@ -307,7 +320,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core browser management
 - Basic snapshot pipeline
 
-[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.39...HEAD
+[Unreleased]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.40...HEAD
+[0.0.40]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.39...v0.0.40
 [0.0.39]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.38...v0.0.39
 [0.0.38]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.37...v0.0.38
 [0.0.37]: https://github.com/freshtechbro/opendevbrowser/compare/v0.0.36...v0.0.37
