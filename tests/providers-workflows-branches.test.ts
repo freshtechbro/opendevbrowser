@@ -1623,6 +1623,139 @@ describe("workflow branch coverage", () => {
       2
     )).toEqual({ auth_required: 1, rate_limited: 2 });
 
+    const enforcedRegionDiagnostic = {
+      provider: "shopping/canada",
+      requestedRegion: "CA",
+      enforced: true,
+      strategy: "default_storefront" as const,
+      storefrontDomain: "example.ca",
+      reason: "provider_search_path_ignores_region" as const
+    };
+    const unenforcedRegionDiagnostic = {
+      provider: "shopping/amazon",
+      requestedRegion: "CA",
+      enforced: false,
+      strategy: "default_storefront" as const,
+      storefrontDomain: "amazon.com",
+      reason: "provider_search_path_ignores_region" as const
+    };
+    expect(workflowTestUtils.buildShoppingRegionAlerts([enforcedRegionDiagnostic], "CA")).toEqual([]);
+    expect(workflowTestUtils.buildShoppingRegionAlerts([
+      enforcedRegionDiagnostic,
+      unenforcedRegionDiagnostic
+    ])).toEqual([
+      expect.objectContaining({
+        signal: "region_unenforced",
+        reasonCode: "region_unenforced",
+        providers: ["shopping/amazon"],
+        requested_region: "CA"
+      })
+    ]);
+
+    const finalizedInspiredesignGuidance = workflowTestUtils.finalizeInspiredesignResponseGuidance({
+      renderedResponse: {
+        followthroughSummary: "Continue in Canvas with this product-ready packet.",
+        suggestedNextAction: "Submit canvas-plan.request.json to Canvas.",
+        productSuccess: true,
+        artifactAuthority: "product_ready"
+      },
+      meta: {
+        followthroughSummary: "Continue in Canvas with this product-ready packet.",
+        suggestedNextAction: "Submit canvas-plan.request.json to Canvas.",
+        productSuccess: true
+      },
+      finalProductReadiness: {
+        ready: false,
+        readiness: "diagnostic_only",
+        guidanceReady: true,
+        guidanceReadiness: "ready",
+        harvestReadiness: "ready",
+        productSuccess: false,
+        artifactAuthority: "diagnostic_only",
+        evidenceAuthority: "diagnostic_only",
+        rankedReferenceCount: 1,
+        authoritativeReferenceCount: 0,
+        snapshotReadyReferenceCount: 0,
+        motionReadyReferenceCount: 0,
+        pinMediaReadyReferenceCount: 0
+      },
+      fallbackFollowthroughSummary: "Continue in Canvas with this product-ready packet."
+    });
+    expect(finalizedInspiredesignGuidance.response).toEqual(expect.objectContaining({
+      followthroughSummary: "Canvas continuation unavailable until ranked references include authoritative visual, motion, or pin-media evidence.",
+      suggestedNextAction: "Canvas continuation unavailable until ranked references include authoritative visual, motion, or pin-media evidence.",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only"
+    }));
+    expect(finalizedInspiredesignGuidance.meta).toEqual(expect.objectContaining({
+      followthroughSummary: "Canvas continuation unavailable until ranked references include authoritative visual, motion, or pin-media evidence.",
+      suggestedNextAction: "Canvas continuation unavailable until ranked references include authoritative visual, motion, or pin-media evidence.",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only"
+    }));
+    const finalizedStaleRenderedGuidance = workflowTestUtils.finalizeInspiredesignResponseGuidance({
+      renderedResponse: {
+        followthroughSummary: "Continue in Canvas with this product-ready packet.",
+        suggestedNextAction: "Submit canvas-plan.request.json to Canvas."
+      },
+      meta: {
+        productSuccess: false
+      },
+      finalProductReadiness: {
+        ready: false,
+        readiness: "diagnostic_only",
+        guidanceReady: true,
+        guidanceReadiness: "ready",
+        harvestReadiness: "ready",
+        productSuccess: false,
+        artifactAuthority: "diagnostic_only",
+        evidenceAuthority: "diagnostic_only",
+        rankedReferenceCount: 1,
+        authoritativeReferenceCount: 0,
+        snapshotReadyReferenceCount: 0,
+        motionReadyReferenceCount: 0,
+        pinMediaReadyReferenceCount: 0
+      },
+      fallbackFollowthroughSummary: "Diagnostic guidance should remain available."
+    });
+    expect(finalizedStaleRenderedGuidance.response).toEqual(expect.objectContaining({
+      followthroughSummary: "Canvas continuation unavailable until ranked references include authoritative visual, motion, or pin-media evidence.",
+      suggestedNextAction: "Canvas continuation unavailable until ranked references include authoritative visual, motion, or pin-media evidence.",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only"
+    }));
+    const finalizedRecoveryGuidance = workflowTestUtils.finalizeInspiredesignResponseGuidance({
+      renderedResponse: {
+        followthroughSummary: "Primary constraint: Pinterest requires recovery before capture. Retry with a logged-in managed profile.",
+        suggestedNextAction: "Retry with a logged-in managed profile."
+      },
+      meta: {
+        productSuccess: false
+      },
+      finalProductReadiness: {
+        ready: false,
+        readiness: "diagnostic_only",
+        guidanceReady: false,
+        guidanceReadiness: "needs_recovery",
+        harvestReadiness: "needs_recovery",
+        productSuccess: false,
+        artifactAuthority: "diagnostic_only",
+        evidenceAuthority: "diagnostic_only",
+        rankedReferenceCount: 0,
+        authoritativeReferenceCount: 0,
+        snapshotReadyReferenceCount: 0,
+        motionReadyReferenceCount: 0,
+        pinMediaReadyReferenceCount: 0
+      },
+      fallbackFollowthroughSummary: "Primary constraint: Pinterest requires recovery before capture."
+    });
+    expect(finalizedRecoveryGuidance.response).toEqual(expect.objectContaining({
+      followthroughSummary: "Primary constraint: Pinterest requires recovery before capture. Retry with a logged-in managed profile.",
+      suggestedNextAction: "Retry with a logged-in managed profile.",
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only"
+    }));
+
     for (const malformedGuidance of [
       { recommendedNextCommands: ["retry command"] },
       { reason: "Retry later." },

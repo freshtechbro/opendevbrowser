@@ -586,7 +586,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         ],
         "notes": [
           "Routine workflow runs should omit --output-dir and inspect the returned artifact_path first; when --output-dir is omitted, persisted bundles use .opendevbrowser/<namespace>/<runId>. If a wrapper requires an explicit workflow root, use --output-dir .opendevbrowser so the runtime appends <namespace>/<runId>.",
-          "Treat --region as advisory unless the workflow output reports region_authoritative=true."
+          "Treat --region as advisory unless the workflow output reports region_authoritative=true. The region_unenforced alert is emitted only for selected provider diagnostics that did not enforce the requested region; enforced-region diagnostics do not create that warning."
         ],
         "groupId": "provider_workflows",
         "groupTitle": "Provider Workflows",
@@ -2678,7 +2678,8 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "cliEquivalent": "shopping",
         "example": "npx opendevbrowser shopping run --query \"wireless ergonomic mouse\" --providers shopping/bestbuy,shopping/ebay --budget 150 --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --mode json --output-format json",
         "notes": [
-          "Routine workflow runs should omit --output-dir and inspect the returned artifact_path first; when --output-dir is omitted, persisted bundles use .opendevbrowser/<namespace>/<runId>. If a wrapper requires an explicit workflow root, use --output-dir .opendevbrowser so the runtime appends <namespace>/<runId>."
+          "Routine workflow runs should omit --output-dir and inspect the returned artifact_path first; when --output-dir is omitted, persisted bundles use .opendevbrowser/<namespace>/<runId>. If a wrapper requires an explicit workflow root, use --output-dir .opendevbrowser so the runtime appends <namespace>/<runId>.",
+          "Treat --region as advisory unless the workflow output reports region_authoritative=true. The region_unenforced alert is emitted only for selected provider diagnostics that did not enforce the requested region; enforced-region diagnostics do not create that warning."
         ]
       },
       {
@@ -2697,6 +2698,7 @@ export const PUBLIC_SURFACE_MANIFEST = {
         "example": "npx opendevbrowser inspiredesign run --brief \"Extract a reusable dashboard design contract from live references\" --url https://linear.app --browser-mode managed --use-cookies --challenge-automation-mode browser_with_helper --include-prototype-guidance --output-format json",
         "notes": [
           "Routine workflow runs should omit --output-dir and inspect the returned artifact_path first; when --output-dir is omitted, persisted bundles use .opendevbrowser/<namespace>/<runId>. If a wrapper requires an explicit workflow root, use --output-dir .opendevbrowser so the runtime appends <namespace>/<runId>.",
+          "Continue only when top-level ready=true, productSuccess=true, artifactAuthority=product_ready, ranked references are non-empty, no matching nextStepGuidance.doNotProceedIf blockers remain active, manifest-backed authority evidence exists, evidenceAuthority is not diagnostic_only, and canonical Pinterest pin-media harvests report evidenceAuthority=pin_media_ready with manifest-backed pin-media-index.json.",
           "FFmpeg and FFprobe are recommended optional host tools for richer media-analysis.json output; OpenDevBrowser does not bundle static FFmpeg binaries or download them by default. Resolution is OPENDEVBROWSER_FFMPEG_PATH and OPENDEVBROWSER_FFPROBE_PATH, then inspiredesign.mediaAnalysis.ffmpegPath and inspiredesign.mediaAnalysis.ffprobePath, then ffmpeg and ffprobe on PATH, then common absolute install directories for implicit PATH-source ENOENT misses only. Invalid env or config paths stay diagnostic and do not fall back. Missing binaries degrade media-analysis.json only, do not fail pin-media readiness, and never make media-analysis.json satisfy product readiness.",
           "status-capabilities reports FFmpeg and FFprobe availability under host.mediaAnalysis so operators can verify optional media-analysis host capability before Inspiredesign runs."
         ]

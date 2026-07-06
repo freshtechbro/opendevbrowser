@@ -133,7 +133,8 @@ import {
 import { filterByTimebox } from "./timebox";
 import {
   SHOPPING_PROVIDER_IDS,
-  SHOPPING_PROVIDER_PROFILES
+  SHOPPING_PROVIDER_PROFILES,
+  type ShoppingRegionSupportDiagnostic
 } from "./shopping";
 import { createLogger, redactSensitive } from "../core/logging";
 import { normalizeProviderReasonCode } from "./errors";
@@ -883,6 +884,22 @@ const summarizeShoppingOfferFilterConstraint = (args: {
   return null;
 };
 
+const buildShoppingRegionAlerts = (
+  diagnostics: readonly ShoppingRegionSupportDiagnostic[],
+  requestedRegion?: string
+): Array<Record<string, JsonValue>> => {
+  const unenforcedDiagnostics = diagnostics.filter((entry) => !entry.enforced);
+  if (unenforcedDiagnostics.length === 0) return [];
+  return [{
+    signal: "region_unenforced",
+    reasonCode: "region_unenforced",
+    state: "warning",
+    reason: "Default shopping adapters currently use provider default storefronts, so requested region filters are advisory only and not authoritative.",
+    providers: unenforcedDiagnostics.map((entry) => entry.provider),
+    requested_region: requestedRegion ?? unenforcedDiagnostics[0]?.requestedRegion ?? ""
+  }];
+};
+
 const selectResearchPrimaryConstraintFailures = (
   failures: ProviderFailureEntry[]
 ): ProviderFailureEntry[] => failures.filter((failure) => failure.error.code !== "timeout");
@@ -1279,6 +1296,17 @@ export const workflowTestUtils = {
     reasonCode: ProviderReasonCode,
     count: number
   ): Record<string, number> => incrementReasonCodeDistribution(reasonCodeDistribution, reasonCode, count),
+  buildShoppingRegionAlerts: (
+    diagnostics: readonly ShoppingRegionSupportDiagnostic[],
+    requestedRegion?: string
+  ): Array<Record<string, JsonValue>> => buildShoppingRegionAlerts(diagnostics, requestedRegion),
+  finalizeInspiredesignResponseGuidance: (args: {
+    renderedResponse: Record<string, unknown>;
+    meta: Record<string, unknown>;
+    finalProductReadiness: InspiredesignWorkflowProductReadiness;
+    fallbackFollowthroughSummary: string;
+  }): { response: Record<string, unknown>; meta: Record<string, unknown> } =>
+    finalizeInspiredesignResponseGuidance(args),
   summarizeShoppingOfferFilterConstraint: (args: {
     diagnostics: ShoppingOfferFilterDiagnostic[];
     budget?: number;
@@ -5318,6 +5346,69 @@ const INSPIREDESIGN_PRODUCT_READY_ONLY_ARTIFACTS = new Set<string>([
   INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest,
   INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance
 ]);
+const PRODUCT_READY_FOLLOWTHROUGH_MARKERS = [
+  "canvas-plan.request.json",
+  "continue in canvas",
+  "product-ready",
+  "submit canvas-plan"
+] as const;
+type InspiredesignWorkflowProductReadiness = ReturnType<typeof buildInspiredesignProductReadinessFields>;
+
+const hasProductReadyFollowthroughMarker = (value: unknown): boolean => {
+  if (typeof value !== "string") return false;
+  const normalized = value.toLowerCase();
+  return PRODUCT_READY_FOLLOWTHROUGH_MARKERS.some((marker) => normalized.includes(marker));
+};
+
+const shouldBlockFinalInspiredesignFollowthrough = (args: {
+  renderedResponse: Record<string, unknown>;
+  meta: Record<string, unknown>;
+  finalProductReadiness: InspiredesignWorkflowProductReadiness;
+  fallbackFollowthroughSummary: string;
+}): boolean => {
+  if (args.finalProductReadiness.productSuccess) return false;
+  return [
+    args.meta.productSuccess,
+    args.renderedResponse.followthroughSummary,
+    args.renderedResponse.suggestedNextAction,
+    args.fallbackFollowthroughSummary
+  ].some((value) => value === true || hasProductReadyFollowthroughMarker(value));
+};
+
+const finalizeInspiredesignResponseGuidance = (args: {
+  renderedResponse: Record<string, unknown>;
+  meta: Record<string, unknown>;
+  finalProductReadiness: InspiredesignWorkflowProductReadiness;
+  fallbackFollowthroughSummary: string;
+}): { response: Record<string, unknown>; meta: Record<string, unknown> } => {
+  const productReadyDemoted = shouldBlockFinalInspiredesignFollowthrough(args);
+  const renderedFollowthroughSummary = typeof args.renderedResponse.followthroughSummary === "string"
+    ? args.renderedResponse.followthroughSummary
+    : args.fallbackFollowthroughSummary;
+  const followthroughSummary = productReadyDemoted
+    ? PRODUCT_READINESS_BLOCKED_SUMMARY
+    : renderedFollowthroughSummary;
+  const renderedSuggestedNextAction = typeof args.renderedResponse.suggestedNextAction === "string"
+    ? args.renderedResponse.suggestedNextAction
+    : followthroughSummary;
+  const suggestedNextAction = productReadyDemoted
+    ? PRODUCT_READINESS_BLOCKED_SUMMARY
+    : renderedSuggestedNextAction;
+  return {
+    response: {
+      ...args.renderedResponse,
+      ...args.finalProductReadiness,
+      followthroughSummary,
+      suggestedNextAction
+    },
+    meta: {
+      ...args.meta,
+      ...args.finalProductReadiness,
+      followthroughSummary,
+      suggestedNextAction
+    }
+  };
+};
 
 const isPinterestWorkflowReferenceUrl = (value: string): boolean => {
   try {
@@ -6775,16 +6866,7 @@ export const runShoppingWorkflow = async (
   const regionEnforced = plan.compiled.regionDiagnostics.length > 0
     ? plan.compiled.regionDiagnostics.every((entry) => entry.enforced)
     : false;
-  if (plan.compiled.regionDiagnostics.length > 0) {
-    alerts.push({
-      signal: "region_unenforced",
-      reasonCode: "region_unenforced",
-      state: "warning",
-      reason: "Default shopping adapters currently use provider default storefronts, so requested region filters are advisory only and not authoritative.",
-      providers: plan.compiled.regionDiagnostics.map((entry) => entry.provider),
-      requested_region: workflowInput.region ?? plan.compiled.regionDiagnostics[0]?.requestedRegion ?? ""
-    });
-  }
+  alerts.push(...buildShoppingRegionAlerts(plan.compiled.regionDiagnostics, workflowInput.region));
   let meta = withPrimaryConstraintMeta({
     selection: {
       providers: plan.compiled.effectiveProviderIds,
@@ -7221,10 +7303,10 @@ export const runInspiredesignWorkflow = async (
     rankedPinMediaReadyReferenceCount,
     rankedAuthoritativePinterestReferenceCount
   );
-	const quality = packet.referencePatternBoard.qualitySummary;
-	const existingMetrics = typeof meta.metrics === "object" && meta.metrics !== null && !Array.isArray(meta.metrics)
-	? meta.metrics as Record<string, unknown>
-	: {};
+  const quality = packet.referencePatternBoard.qualitySummary;
+  const existingMetrics = typeof meta.metrics === "object" && meta.metrics !== null && !Array.isArray(meta.metrics)
+    ? meta.metrics as Record<string, unknown>
+    : {};
   let followthroughSummary = buildInspiredesignGuidanceFollowthroughSummary(
     packet.followthrough,
     meta,
@@ -7239,16 +7321,16 @@ export const runInspiredesignWorkflow = async (
   }
   const metaWithGuidance = {
     ...meta,
-	...(mediaAnalysisFailure ? { mediaAnalysisFailure } : {}),
-	metrics: {
-		...existingMetrics,
-		attempted_reference_count: quality.attemptedReferenceCount,
-		missing_screenshot_count: quality.missingScreenshotCount,
-		all_attempt_failed_capture_count: quality.allAttemptFailedCaptureCount,
-		all_attempt_missing_screenshot_count: quality.allAttemptMissingScreenshotCount,
-		all_attempt_visual_failure_count: quality.allAttemptVisualFailureCount,
-		all_attempt_motion_failure_count: quality.allAttemptMotionFailureCount
-	},
+    ...(mediaAnalysisFailure ? { mediaAnalysisFailure } : {}),
+    metrics: {
+      ...existingMetrics,
+      attempted_reference_count: quality.attemptedReferenceCount,
+      missing_screenshot_count: quality.missingScreenshotCount,
+      all_attempt_failed_capture_count: quality.allAttemptFailedCaptureCount,
+      all_attempt_missing_screenshot_count: quality.allAttemptMissingScreenshotCount,
+      all_attempt_visual_failure_count: quality.allAttemptVisualFailureCount,
+      all_attempt_motion_failure_count: quality.allAttemptMotionFailureCount
+    },
     ...productReadiness,
     pinterestEvidenceRequired,
     followthroughSummary,
@@ -7267,41 +7349,47 @@ export const runInspiredesignWorkflow = async (
     designMarkdown: packet.designMarkdown,
     implementationPlanMarkdown: packet.implementationPlanMarkdown,
     prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
-	    evidence: packet.evidence,
-	    visualEvidence: packet.visualEvidence,
-	    screenshotIndex: packet.screenshotIndex,
-	    motionEvidence: packet.motionEvidence,
-	    authorityScreenshotIndex: manifestBackedScreenshotIndex,
-	    authorityMotionEvidence: manifestBackedMotionEvidence,
-      pinMediaEvidence: packet.pinMediaEvidence,
-      pinMediaIndex: packet.pinMediaIndex,
-      authorityPinMediaIndex: manifestBackedPinMediaIndex,
-      mediaAnalysis: packet.mediaAnalysis,
-	    rankedReferences: packet.rankedReferences,
+    evidence: packet.evidence,
+    visualEvidence: packet.visualEvidence,
+    screenshotIndex: packet.screenshotIndex,
+    motionEvidence: packet.motionEvidence,
+    authorityScreenshotIndex: manifestBackedScreenshotIndex,
+    authorityMotionEvidence: manifestBackedMotionEvidence,
+    pinMediaEvidence: packet.pinMediaEvidence,
+    pinMediaIndex: packet.pinMediaIndex,
+    authorityPinMediaIndex: manifestBackedPinMediaIndex,
+    mediaAnalysis: packet.mediaAnalysis,
+    rankedReferences: packet.rankedReferences,
     referencePatternBoard: buildInspiredesignRankedArtifactPatternBoard(
       packet.generationPlan.referencePatternBoard,
       packet.referencePatternBoard
     ),
     metaPromptMarkdown: packet.metaPromptMarkdown,
-	    nextStepGuidance,
-	    meta: metaWithGuidance
-	  });
-	  const renderedProductSuccess = (rendered.response as { productSuccess?: unknown }).productSuccess === true;
-	  const finalProductReadiness = renderedProductSuccess && productReadiness.productSuccess
-	    ? productReadiness
-	    : {
-	      ...productReadiness,
-	      ready: false,
-	      productSuccess: false,
-	      artifactAuthority: "diagnostic_only" as const,
-	      evidenceAuthority: "diagnostic_only" as const
-		    };
-	  const renderedFilesForBundle = finalProductReadiness.productSuccess
-	    ? rendered.files
-	    : rendered.files.filter((file) => !INSPIREDESIGN_PRODUCT_READY_ONLY_ARTIFACTS.has(file.path));
-	  const bundle = await createArtifactBundle({
-	    namespace: "inspiredesign",
-	    outputDir: artifactRoot,
+    nextStepGuidance,
+    meta: metaWithGuidance
+  });
+  const renderedProductSuccess = (rendered.response as { productSuccess?: unknown }).productSuccess === true;
+  const finalProductReadiness = renderedProductSuccess && productReadiness.productSuccess
+    ? productReadiness
+    : {
+      ...productReadiness,
+      ready: false,
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only" as const,
+      evidenceAuthority: "diagnostic_only" as const
+    };
+  const renderedFilesForBundle = finalProductReadiness.productSuccess
+    ? rendered.files
+    : rendered.files.filter((file) => !INSPIREDESIGN_PRODUCT_READY_ONLY_ARTIFACTS.has(file.path));
+  const finalGuidance = finalizeInspiredesignResponseGuidance({
+    renderedResponse: rendered.response,
+    meta: metaWithGuidance,
+    finalProductReadiness,
+    fallbackFollowthroughSummary: followthroughSummary
+  });
+  const bundle = await createArtifactBundle({
+    namespace: "inspiredesign",
+    outputDir: artifactRoot,
 	    ttlHours: workflowInput.ttlHours,
 	    files: [
         ...renderedFilesForBundle,
@@ -7314,24 +7402,20 @@ export const runInspiredesignWorkflow = async (
 
   if (workflowInput.mode === "path") {
     return {
-      ...rendered.response,
-      ...finalProductReadiness,
+      ...finalGuidance.response,
       artifact_path: bundle.basePath,
       meta: {
-        ...metaWithGuidance,
-        ...finalProductReadiness,
+        ...finalGuidance.meta,
         artifact_manifest: bundle.manifest
       }
     };
   }
 
   return {
-    ...rendered.response,
-    ...finalProductReadiness,
+    ...finalGuidance.response,
     artifact_path: bundle.basePath,
     meta: {
-      ...metaWithGuidance,
-      ...finalProductReadiness,
+      ...finalGuidance.meta,
       artifact_manifest: bundle.manifest
     }
   };

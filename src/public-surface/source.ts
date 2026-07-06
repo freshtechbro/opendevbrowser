@@ -867,7 +867,7 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
   ],
   shopping: [
     WORKFLOW_OUTPUT_PREFERENCE_NOTE,
-    "Treat --region as advisory unless the workflow output reports region_authoritative=true."
+    "Treat --region as advisory unless the workflow output reports region_authoritative=true. The region_unenforced alert is emitted only for selected provider diagnostics that did not enforce the requested region; enforced-region diagnostics do not create that warning."
   ],
   "product-video": [
     WORKFLOW_OUTPUT_PREFERENCE_NOTE,
@@ -1063,7 +1063,8 @@ const TOOL_SURFACE_NOTES: Partial<Record<string, readonly string[]>> = {
     WORKFLOW_OUTPUT_PREFERENCE_NOTE
   ],
   opendevbrowser_shopping_run: [
-    WORKFLOW_OUTPUT_PREFERENCE_NOTE
+    WORKFLOW_OUTPUT_PREFERENCE_NOTE,
+    "Treat --region as advisory unless the workflow output reports region_authoritative=true. The region_unenforced alert is emitted only for selected provider diagnostics that did not enforce the requested region; enforced-region diagnostics do not create that warning."
   ],
   opendevbrowser_product_video_run: [
     WORKFLOW_OUTPUT_PREFERENCE_NOTE
@@ -1073,6 +1074,7 @@ const TOOL_SURFACE_NOTES: Partial<Record<string, readonly string[]>> = {
   ],
   opendevbrowser_inspiredesign_run: [
     WORKFLOW_OUTPUT_PREFERENCE_NOTE,
+    "Continue only when top-level ready=true, productSuccess=true, artifactAuthority=product_ready, ranked references are non-empty, no matching nextStepGuidance.doNotProceedIf blockers remain active, manifest-backed authority evidence exists, evidenceAuthority is not diagnostic_only, and canonical Pinterest pin-media harvests report evidenceAuthority=pin_media_ready with manifest-backed pin-media-index.json.",
     MEDIA_ANALYSIS_DEPENDENCY_NOTE,
     MEDIA_ANALYSIS_STATUS_NOTE
   ]
