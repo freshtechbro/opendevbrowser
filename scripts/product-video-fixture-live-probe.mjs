@@ -29,6 +29,22 @@ const PNG_BYTES = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jX1QAAAAASUVORK5CYII=",
   "base64"
 );
+const PRODUCT_VIDEO_PASS_STATUS = "pass";
+const PRODUCT_VIDEO_READINESS_GATES = [
+  { file: "manifest.json", path: ["readiness", "presentation", "status"], label: "manifest.readiness.presentation.status" },
+  { file: "manifest.json", path: ["readiness", "productVideo", "status"], label: "manifest.readiness.productVideo.status" },
+  { file: "presentation-readiness.json", path: ["summary", "status"], label: "presentation-readiness.json.summary.status" },
+  { file: "presentation-readiness.json", path: ["presentationReadiness", "status"], label: "presentation-readiness.json.presentationReadiness.status" },
+  { file: "presentation-readiness.json", path: ["productVideoReadiness", "status"], label: "presentation-readiness.json.productVideoReadiness.status" },
+  { file: "product.json", path: ["presentationReadiness", "status"], label: "product.json.presentationReadiness.status" },
+  { file: "product.json", path: ["productVideoReadiness", "status"], label: "product.json.productVideoReadiness.status" }
+];
+const PRODUCT_VIDEO_REQUIRED_BUNDLE_FILES = [
+  "manifest.json",
+  "presentation-readiness.json",
+  "product.json",
+  "bundle-manifest.json"
+];
 
 function parseArgs(argv) {
   const options = {
@@ -65,9 +81,17 @@ function parseArgs(argv) {
   return options;
 }
 
-function createProductFixtureServer() {
+function resolveFixtureRequestOrigin(request) {
+  const host = typeof request.headers.host === "string" && request.headers.host.length > 0
+    ? request.headers.host
+    : "127.0.0.1";
+  return `http://${host}`;
+}
+
+export function createProductFixtureServer() {
   return http.createServer((request, response) => {
-    const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    const requestOrigin = resolveFixtureRequestOrigin(request);
+    const url = new URL(request.url ?? "/", requestOrigin);
     if (url.pathname.startsWith("/assets/")) {
       response.writeHead(200, {
         "content-type": "image/png",
@@ -84,12 +108,13 @@ function createProductFixtureServer() {
     }
 
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    const productDescription = "Type Desk Organizer. Connectivity Wireless charging and magnetic cable routing. Widget Pro keeps your desk clear with integrated charging and storage.";
     response.end(`<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <title>Widget Pro | Acme Labs</title>
-    <meta name="description" content="Widget Pro is a compact desk accessory that combines cable routing, wireless charging, and quick-access storage.">
+    <meta name="description" content="${productDescription}">
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -100,10 +125,10 @@ function createProductFixtureServer() {
           "name": "Acme Labs"
         },
         "image": [
-          "http://127.0.0.1:${url.port}/assets/widget-01.png",
-          "http://127.0.0.1:${url.port}/assets/widget-02.png"
+          "${requestOrigin}/assets/widget-01.png",
+          "${requestOrigin}/assets/widget-02.png"
         ],
-        "description": "Widget Pro keeps your desk clear with integrated charging and storage.",
+        "description": "${productDescription}",
         "offers": {
           "@type": "Offer",
           "priceCurrency": "USD",
@@ -130,7 +155,7 @@ function createProductFixtureServer() {
         <h1>Widget Pro</h1>
         <p class="price">$79.99</p>
         <p>Widget Pro is the all-in-one desktop organizer for creators who want fewer cables, cleaner lines, and instant charging access.</p>
-        <img src="http://127.0.0.1:${url.port}/assets/widget-01.png" alt="Widget Pro front view">
+        <img src="${requestOrigin}/assets/widget-01.png" alt="Widget Pro front view">
       </section>
       <section class="grid">
         <article>
@@ -144,7 +169,7 @@ function createProductFixtureServer() {
         <article>
           <h2>Why it works</h2>
           <p>Designed for hybrid desks, Widget Pro reduces clutter without taking over the workspace.</p>
-          <img src="http://127.0.0.1:${url.port}/assets/widget-02.png" alt="Widget Pro lifestyle scene">
+          <img src="${requestOrigin}/assets/widget-02.png" alt="Widget Pro lifestyle scene">
         </article>
       </section>
     </main>
@@ -157,7 +182,60 @@ function getReviewBundleRoot() {
   return path.join(process.cwd(), "artifacts", "skill-runtime-audit", "review-bundles", "product-video-fixture");
 }
 
-export function validateProductVideoArtifactBundle(artifactPath) {
+function readJsonObject(filePath) {
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    return { value: null, detail: "missing" };
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return { value: null, detail: "invalid_shape" };
+    }
+    return { value: parsed, detail: null };
+  } catch {
+    return { value: null, detail: "invalid_json" };
+  }
+}
+
+function isOutsidePath(relativePath) {
+  return relativePath === "" || relativePath.startsWith("..") || path.isAbsolute(relativePath);
+}
+
+function validateExpectedProductVideoRoot(artifactPath, expectedRoot) {
+  if (typeof expectedRoot !== "string" || expectedRoot.trim() === "") {
+    return "missing_product_video_expected_output_root";
+  }
+  if (!fs.existsSync(expectedRoot) || !fs.statSync(expectedRoot).isDirectory()) {
+    return "product_video_expected_output_root_missing_on_disk";
+  }
+  const realArtifactPath = fs.realpathSync(artifactPath);
+  const realExpectedRoot = fs.realpathSync(expectedRoot);
+  const expectedProductVideoRoot = path.join(realExpectedRoot, "product-video");
+  const relativePath = path.relative(expectedProductVideoRoot, realArtifactPath);
+  if (isOutsidePath(relativePath) || relativePath.includes(path.sep)) {
+    return "product_video_artifact_path_outside_expected_output_root";
+  }
+  return null;
+}
+
+function validateBundleManifest(artifactPath, manifestPath) {
+  const parsed = readJsonObject(manifestPath);
+  if (parsed.detail) return `product_video_bundle_manifest_${parsed.detail}`;
+  if (parsed.value.run_id !== path.basename(artifactPath)) {
+    return "product_video_bundle_manifest_run_id_mismatch";
+  }
+  if (!Array.isArray(parsed.value.files) || parsed.value.files.some((file) => typeof file !== "string")) {
+    return "product_video_bundle_manifest_files_invalid";
+  }
+  for (const requiredFile of PRODUCT_VIDEO_REQUIRED_BUNDLE_FILES) {
+    if (!parsed.value.files.includes(requiredFile)) {
+      return `product_video_bundle_manifest_missing_required_file:${requiredFile}`;
+    }
+  }
+  return null;
+}
+
+export function validateProductVideoArtifactBundle(artifactPath, expectedRoot) {
   if (typeof artifactPath !== "string" || artifactPath.trim() === "") {
     return { artifactPath: null, detail: "missing_product_video_artifact_path" };
   }
@@ -167,11 +245,75 @@ export function validateProductVideoArtifactBundle(artifactPath) {
   if (path.basename(path.dirname(artifactPath)) !== "product-video") {
     return { artifactPath, detail: "product_video_artifact_namespace_mismatch" };
   }
+  const rootDetail = validateExpectedProductVideoRoot(artifactPath, expectedRoot);
+  if (rootDetail) {
+    return { artifactPath, detail: rootDetail };
+  }
   const manifestPath = path.join(artifactPath, "bundle-manifest.json");
   if (!fs.existsSync(manifestPath) || !fs.statSync(manifestPath).isFile()) {
     return { artifactPath, detail: "product_video_bundle_manifest_missing" };
   }
+  const manifestDetail = validateBundleManifest(artifactPath, manifestPath);
+  if (manifestDetail) {
+    return { artifactPath, detail: manifestDetail };
+  }
   return { artifactPath, detail: null };
+}
+
+function valueAtPath(record, pathParts) {
+  let value = record;
+  for (const pathPart of pathParts) {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    value = value[pathPart];
+  }
+  return value;
+}
+
+export function validateProductVideoReadinessBundle(artifactPath, expectedRoot) {
+  const artifactValidation = validateProductVideoArtifactBundle(artifactPath, expectedRoot);
+  if (artifactValidation.detail) return { ...artifactValidation, statuses: [] };
+
+  const statuses = [];
+  const jsonByFile = new Map();
+  for (const gate of PRODUCT_VIDEO_READINESS_GATES) {
+    let parsed = jsonByFile.get(gate.file);
+    if (!parsed) {
+      parsed = readJsonObject(path.join(artifactPath, gate.file));
+      jsonByFile.set(gate.file, parsed);
+    }
+    if (parsed.detail) {
+      return {
+        artifactPath,
+        detail: `product_video_readiness_file_${parsed.detail}:${gate.file}`,
+        statuses
+      };
+    }
+    const status = valueAtPath(parsed.value, gate.path);
+    statuses.push({ label: gate.label, status: typeof status === "string" ? status : null });
+    if (status !== PRODUCT_VIDEO_PASS_STATUS) {
+      return {
+        artifactPath,
+        detail: `product_video_readiness_not_pass:${gate.label}=${typeof status === "string" ? status : "missing"}`,
+        statuses
+      };
+    }
+  }
+
+  return { artifactPath, detail: null, statuses };
+}
+
+export function validateProductVideoWorkflowReadinessArtifact(workflowStatus, artifactPath, expectedRoot) {
+  const artifactValidation = workflowStatus === 0
+    ? validateProductVideoArtifactBundle(artifactPath, expectedRoot)
+    : { artifactPath, detail: null };
+  const readinessValidation = workflowStatus === 0 && artifactValidation.detail === null
+    ? validateProductVideoReadinessBundle(artifactPath, expectedRoot)
+    : { artifactPath, detail: null, statuses: [] };
+  return {
+    artifactPath,
+    detail: artifactValidation.detail ?? readinessValidation.detail,
+    statuses: readinessValidation.statuses
+  };
 }
 
 export function productVideoWorkflowFailureDetail(workflow, artifactDetail) {
@@ -243,9 +385,11 @@ async function runProbe(options) {
 
       const metadataOnlyData = metadataOnlyWorkflow.json?.data ?? {};
       const metadataOnlyArtifactPath = typeof metadataOnlyData.artifact_path === "string" ? metadataOnlyData.artifact_path : null;
-      const metadataOnlyArtifactValidation = metadataOnlyWorkflow.status === 0
-        ? validateProductVideoArtifactBundle(metadataOnlyArtifactPath)
-        : { artifactPath: metadataOnlyArtifactPath, detail: null };
+      const metadataOnlyArtifactValidation = validateProductVideoWorkflowReadinessArtifact(
+        metadataOnlyWorkflow.status,
+        metadataOnlyArtifactPath,
+        outputDir
+      );
       const persistedMetadataOnlyArtifactPath = metadataOnlyWorkflow.status === 0
         && metadataOnlyArtifactValidation.detail === null
         ? persistArtifactBundle(metadataOnlyArtifactPath, runId, "metadata-only")
@@ -263,10 +407,14 @@ async function runProbe(options) {
       pushStep(report, {
         id: "workflow.product_video_run_no_screenshots",
         status: metadataOnlyOk ? "pass" : "fail",
-        detail: metadataOnlyOk ? null : productVideoWorkflowFailureDetail(metadataOnlyWorkflow, metadataOnlyArtifactValidation.detail),
+        detail: metadataOnlyOk ? null : productVideoWorkflowFailureDetail(
+          metadataOnlyWorkflow,
+          metadataOnlyArtifactValidation.detail
+        ),
         data: {
           artifactPath: persistedMetadataOnlyArtifactPath,
           sourceArtifactPath: metadataOnlyArtifactPath,
+          readiness: metadataOnlyArtifactValidation.statuses,
           images: Array.isArray(metadataOnlyData.images) ? metadataOnlyData.images.length : 0,
           screenshots: Array.isArray(metadataOnlyData.screenshots) ? metadataOnlyData.screenshots.length : 0,
           title: metadataOnlyData.manifest?.product?.title ?? null,
@@ -295,9 +443,11 @@ async function runProbe(options) {
 
       const data = workflow.json?.data ?? {};
       const artifactPath = typeof data.artifact_path === "string" ? data.artifact_path : null;
-      const artifactValidation = workflow.status === 0
-        ? validateProductVideoArtifactBundle(artifactPath)
-        : { artifactPath, detail: null };
+      const artifactValidation = validateProductVideoWorkflowReadinessArtifact(
+        workflow.status,
+        artifactPath,
+        screenshotOutputDir
+      );
       const persistedArtifactPath = workflow.status === 0
         && artifactValidation.detail === null
         ? persistArtifactBundle(artifactPath, runId, "with-screenshots")
@@ -324,10 +474,14 @@ async function runProbe(options) {
       pushStep(report, {
         id: "workflow.product_video_run",
         status: workflowOk ? "pass" : "fail",
-        detail: workflowOk ? null : productVideoWorkflowFailureDetail(workflow, artifactValidation.detail),
+        detail: workflowOk ? null : productVideoWorkflowFailureDetail(
+          workflow,
+          artifactValidation.detail
+        ),
         data: {
           artifactPath: persistedArtifactPath,
           sourceArtifactPath: artifactPath,
+          readiness: artifactValidation.statuses,
           images: Array.isArray(data.images) ? data.images.length : 0,
           screenshots: Array.isArray(data.screenshots) ? data.screenshots.length : 0,
           title: data.manifest?.product?.title ?? null,

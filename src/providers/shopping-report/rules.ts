@@ -76,6 +76,7 @@ const SOFT_DESCRIPTOR_TOKENS = new Set([
 ]);
 
 const BUDGET_PRICE_TOKEN_PATTERN = /\b(?:under|below|less than|no more than|max(?:imum)?|budget|up to)\s+(?:[$\u20ac\u00a3\u00a5]\s*)?(\d+(?:[.,]\d+)?)(?:\s*(?:usd|cad|eur|gbp))?\b|[$\u20ac\u00a3\u00a5]\s*(\d+(?:[.,]\d+)?)/gi;
+const COMPACT_QUANTITY_PACK_TOKEN_PATTERN = /^\d+pack$/;
 
 const PRODUCT_EVIDENCE_ATTRIBUTE_KEYS = new Set([
   "brand",
@@ -90,6 +91,7 @@ const PRODUCT_EVIDENCE_ATTRIBUTE_KEYS = new Set([
 ]);
 
 const normalizeToken = (token: string): string => {
+  if (COMPACT_QUANTITY_PACK_TOKEN_PATTERN.test(token)) return "pack";
   if (token === "ergo") return "ergonomic";
   if (token === "mic" || token === "microphones") return "microphone";
   if (token === "mice") return "mouse";

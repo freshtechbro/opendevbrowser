@@ -364,6 +364,19 @@ describe("shopping-report", () => {
     expect(emptyQueryRelevance.missingTokens).toEqual([]);
   });
 
+  it("matches compact quantity pack title tokens without accepting unrelated words", () => {
+    const compactPackRelevance = assessQueryRelevance("pack", "Durcord USB C Cable 2Pack 100W 6ft");
+    const hyphenatedPackRelevance = assessQueryRelevance("pack", "Durcord USB C Cable 2-pack 100W 6ft");
+    const unrelatedBackpackRelevance = assessQueryRelevance("pack", "Travel Backpack");
+
+    expect(compactPackRelevance.status).toBe("strong");
+    expect(compactPackRelevance.missingTokens).toEqual([]);
+    expect(hyphenatedPackRelevance.status).toBe("strong");
+    expect(hyphenatedPackRelevance.missingTokens).toEqual([]);
+    expect(unrelatedBackpackRelevance.status).toBe("weak");
+    expect(unrelatedBackpackRelevance.missingTokens).toEqual(["pack"]);
+  });
+
   it("ignores budget price numbers in query relevance while preserving product spec numbers", () => {
     const budgetBriefing = buildShoppingBriefing(briefingInput({
       query: "ergonomic mouse under $150",

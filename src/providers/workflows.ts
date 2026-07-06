@@ -133,7 +133,8 @@ import {
 import { filterByTimebox } from "./timebox";
 import {
   SHOPPING_PROVIDER_IDS,
-  SHOPPING_PROVIDER_PROFILES
+  SHOPPING_PROVIDER_PROFILES,
+  type ShoppingRegionSupportDiagnostic
 } from "./shopping";
 import { createLogger, redactSensitive } from "../core/logging";
 import { normalizeProviderReasonCode } from "./errors";
@@ -883,6 +884,22 @@ const summarizeShoppingOfferFilterConstraint = (args: {
   return null;
 };
 
+const buildShoppingRegionAlerts = (
+  diagnostics: readonly ShoppingRegionSupportDiagnostic[],
+  requestedRegion?: string
+): Array<Record<string, JsonValue>> => {
+  const unenforcedDiagnostics = diagnostics.filter((entry) => !entry.enforced);
+  if (unenforcedDiagnostics.length === 0) return [];
+  return [{
+    signal: "region_unenforced",
+    reasonCode: "region_unenforced",
+    state: "warning",
+    reason: "Default shopping adapters currently use provider default storefronts, so requested region filters are advisory only and not authoritative.",
+    providers: unenforcedDiagnostics.map((entry) => entry.provider),
+    requested_region: requestedRegion ?? unenforcedDiagnostics[0]?.requestedRegion ?? ""
+  }];
+};
+
 const selectResearchPrimaryConstraintFailures = (
   failures: ProviderFailureEntry[]
 ): ProviderFailureEntry[] => failures.filter((failure) => failure.error.code !== "timeout");
@@ -1279,6 +1296,17 @@ export const workflowTestUtils = {
     reasonCode: ProviderReasonCode,
     count: number
   ): Record<string, number> => incrementReasonCodeDistribution(reasonCodeDistribution, reasonCode, count),
+  buildShoppingRegionAlerts: (
+    diagnostics: readonly ShoppingRegionSupportDiagnostic[],
+    requestedRegion?: string
+  ): Array<Record<string, JsonValue>> => buildShoppingRegionAlerts(diagnostics, requestedRegion),
+  finalizeInspiredesignResponseGuidance: (args: {
+    renderedResponse: Record<string, unknown>;
+    meta: Record<string, unknown>;
+    finalProductReadiness: InspiredesignWorkflowProductReadiness;
+    fallbackFollowthroughSummary: string;
+  }): { response: Record<string, unknown>; meta: Record<string, unknown> } =>
+    finalizeInspiredesignResponseGuidance(args),
   summarizeShoppingOfferFilterConstraint: (args: {
     diagnostics: ShoppingOfferFilterDiagnostic[];
     budget?: number;
@@ -1777,6 +1805,14 @@ type InspiredesignPinMediaArtifactCollation = {
 const INSPIREDESIGN_CAPTURE_UNAVAILABLE_FAILURE =
   "Deep capture requested, but browser capture is unavailable in this execution lane.";
 const REQUIRED_VISUAL_EVIDENCE_MISSING_FAILURE = "Required visual evidence was not captured.";
+const PIN_MEDIA_VISUAL_AUTHORITY_SATISFIED_WARNING = "pin_media_visual_authority_satisfied";
+const PIN_MEDIA_VISUAL_SUPPLEMENTAL_UNAVAILABLE_WARNING = "supplemental_visual_evidence_unavailable";
+const PIN_MEDIA_SUPPLEMENTAL_VISUAL_FAILURE_WARNINGS = new Set([
+  "finalize_failed",
+  "primary_visual_capture_unavailable",
+  "primary_visual_capture_failed",
+  "required_visual_evidence_missing"
+]);
 const INSPIREDESIGN_VISUAL_POLICY_BLOCKER_REASONS = new Set<InspiredesignVisualPolicyDecision["reason"]>([
   "policy_blocked",
   "auth_required",
@@ -3231,17 +3267,85 @@ const hasWorkflowPrimaryPinMediaDesignEvidence = (
 	if (!pinMediaIndexEntry) return false;
 	return isInspiredesignAuthoritativeRankedReference(
 		{
-		id: reference.id,
-		url: reference.url,
-		evidenceAuthority: "pin_media_ready"
+				id: reference.id,
+				url: reference.url,
+				evidenceAuthority: "pin_media_ready"
 		},
 		{ pinMedia: [pinMediaIndexEntry] }
 	);
 };
 
+const hasWorkflowManifestBackedPinMediaDesignEvidence = (
+  reference: InspiredesignReferenceEvidence,
+  persistedArtifactPaths: ReadonlySet<string>
+): boolean => {
+  if (!hasWorkflowPrimaryPinMediaDesignEvidence(reference)) return false;
+  const pinMedia = reference.capture?.pinMedia;
+  if (!pinMedia || pinMedia.status !== "captured") return false;
+  const persistedPinMedia = persistInspiredesignPinterestPinMediaEvidence(pinMedia);
+  const pinMediaIndexEntry = buildInspiredesignPinterestPinMediaIndexEntry(persistedPinMedia);
+  return typeof pinMediaIndexEntry?.path === "string" && persistedArtifactPaths.has(pinMediaIndexEntry.path);
+};
+
+const normalizePinMediaSatisfiedVisualWarnings = (warnings: readonly string[]): string[] => {
+  const retainedWarnings = warnings.filter((warning) => !PIN_MEDIA_SUPPLEMENTAL_VISUAL_FAILURE_WARNINGS.has(warning));
+  return Array.from(new Set([
+    ...retainedWarnings,
+    PIN_MEDIA_VISUAL_SUPPLEMENTAL_UNAVAILABLE_WARNING,
+    PIN_MEDIA_VISUAL_AUTHORITY_SATISFIED_WARNING
+  ]));
+};
+
+const hasVisualPolicyWarning = (warnings: readonly string[]): boolean => (
+  warnings.some((warning) => warning.startsWith("policy:"))
+);
+
+const isPinMediaSupplementalVisualUnavailable = (
+  visual: InspiredesignPersistedVisualEvidence
+): boolean => (
+  visual.status !== "captured"
+  && !hasVisualPolicyWarning(visual.warnings)
+  && visual.warnings.some((warning) => PIN_MEDIA_SUPPLEMENTAL_VISUAL_FAILURE_WARNINGS.has(warning))
+);
+
+const normalizeReferenceVisualEvidenceAfterPinMedia = (
+  reference: InspiredesignReferenceEvidence,
+  persistedArtifactPaths: ReadonlySet<string>
+): InspiredesignReferenceEvidence => {
+  if (!hasWorkflowManifestBackedPinMediaDesignEvidence(reference, persistedArtifactPaths)) return reference;
+  const visual = normalizeInspiredesignCaptureEvidence(reference.capture)?.visual;
+  if (!visual) return reference;
+  const persistedVisual = persistInspiredesignVisualEvidence(visual);
+  if (persistedVisual.status === "captured" && persistedVisual.path) return reference;
+  if (!isPinMediaSupplementalVisualUnavailable(persistedVisual)) return reference;
+  const {
+    bytes: _bytes,
+    failure: _failure,
+    path: _path,
+    sha256: _sha256,
+    ...visualWithoutArtifactFailure
+  } = persistedVisual;
+  const skippedVisual: InspiredesignPersistedVisualEvidence = {
+    ...visualWithoutArtifactFailure,
+    status: "skipped",
+    warnings: normalizePinMediaSatisfiedVisualWarnings(persistedVisual.warnings)
+  };
+  return {
+    ...reference,
+    capture: mergeCaptureVisualEvidence(reference.capture, skippedVisual)
+  };
+};
+
+const normalizeVisualEvidenceAfterPinMedia = (
+  references: InspiredesignReferenceEvidence[],
+  persistedArtifactPaths: ReadonlySet<string>
+): InspiredesignReferenceEvidence[] => (
+  references.map((reference) => normalizeReferenceVisualEvidenceAfterPinMedia(reference, persistedArtifactPaths))
+);
+
 const PIN_MEDIA_FINALIZATION_FAILURE_REASONS = new Set([
-	"pin_media_temp_path_missing",
-	"pin_media_temp_path_mismatch",
+		"pin_media_temp_path_missing",
+		"pin_media_temp_path_mismatch",
 	"pin_media_temp_file_unavailable",
 	"pin_media_temp_file_too_large",
 	"unsupported_byte_signature",
@@ -3620,7 +3724,7 @@ const failReferenceForRequiredVisualEvidence = (
 
 const isPolicySkippedVisualEvidence = (
   visual: InspiredesignVisualEvidenceRuntimeMetadata | InspiredesignPersistedVisualEvidence
-): boolean => visual.status === "skipped" && visual.warnings.some((warning) => warning.startsWith("policy:"));
+): boolean => visual.status === "skipped" && hasVisualPolicyWarning(visual.warnings);
 
 const finalizeInspiredesignReferenceVisual = async (
   reference: InspiredesignReferenceEvidence,
@@ -4218,13 +4322,17 @@ const buildSavedMediaMotionNotice = (args: {
   };
 };
 
-type VisualEvidenceAfterPinMediaStatus = "captured" | "failed" | "skipped";
+type VisualEvidenceAfterPinMediaStatus = "captured" | "skipped";
 
 type VisualEvidenceAfterPinMediaReference = {
   referenceId: string;
   url: string;
   status: VisualEvidenceAfterPinMediaStatus;
-  reason: "screenshot_captured_after_pin_media" | "screenshot_failed_after_pin_media" | "screenshot_not_attempted_after_pin_media";
+  reason:
+    | "screenshot_captured_after_pin_media"
+    | "screenshot_not_attempted_after_pin_media"
+    | "screenshot_policy_skipped_after_pin_media"
+    | "screenshot_skipped_after_pin_media";
   pinMediaPath: string;
   screenshotPath?: string;
   failure?: string;
@@ -4236,6 +4344,15 @@ type VisualEvidenceAfterPinMediaNotice = {
   authority: "pin_media_ready";
   message: string;
   references: VisualEvidenceAfterPinMediaReference[];
+};
+
+const visualAfterPinMediaSkippedReason = (args: {
+  policySkipped: boolean;
+  skippedByPinMediaAuthority: boolean;
+}): VisualEvidenceAfterPinMediaReference["reason"] => {
+  if (args.policySkipped) return "screenshot_policy_skipped_after_pin_media";
+  if (args.skippedByPinMediaAuthority) return "screenshot_skipped_after_pin_media";
+  return "screenshot_not_attempted_after_pin_media";
 };
 
 type StillImageMotionCaptureNotice = {
@@ -4285,22 +4402,24 @@ const visualAfterPinMediaReference = (
       warnings: screenshot.warnings
     };
   }
-  const failed = visual?.status === "failed";
+  const warnings = visual?.warnings ?? [];
+  const skippedByPinMediaAuthority = warnings.includes(PIN_MEDIA_VISUAL_AUTHORITY_SATISFIED_WARNING);
   return {
     referenceId: reference.id,
     url: reference.url,
-    status: failed ? "failed" : "skipped",
-    reason: failed ? "screenshot_failed_after_pin_media" : "screenshot_not_attempted_after_pin_media",
+    status: "skipped",
+    reason: visualAfterPinMediaSkippedReason({
+      policySkipped: hasVisualPolicyWarning(warnings),
+      skippedByPinMediaAuthority
+    }),
     pinMediaPath: pinMedia.path,
-    ...(visual?.failure ? { failure: visual.failure } : {}),
-    warnings: visual?.warnings ?? []
+    warnings
   };
 };
 
 const aggregateVisualAfterPinMediaStatus = (
   references: readonly VisualEvidenceAfterPinMediaReference[]
 ): VisualEvidenceAfterPinMediaStatus => {
-  if (references.some((reference) => reference.status === "failed")) return "failed";
   if (references.every((reference) => reference.status === "captured")) return "captured";
   return "skipped";
 };
@@ -5227,6 +5346,69 @@ const INSPIREDESIGN_PRODUCT_READY_ONLY_ARTIFACTS = new Set<string>([
   INSPIREDESIGN_HANDOFF_FILES.canvasPlanRequest,
   INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance
 ]);
+const PRODUCT_READY_FOLLOWTHROUGH_MARKERS = [
+  "canvas-plan.request.json",
+  "continue in canvas",
+  "product-ready",
+  "submit canvas-plan"
+] as const;
+type InspiredesignWorkflowProductReadiness = ReturnType<typeof buildInspiredesignProductReadinessFields>;
+
+const hasProductReadyFollowthroughMarker = (value: unknown): boolean => {
+  if (typeof value !== "string") return false;
+  const normalized = value.toLowerCase();
+  return PRODUCT_READY_FOLLOWTHROUGH_MARKERS.some((marker) => normalized.includes(marker));
+};
+
+const shouldBlockFinalInspiredesignFollowthrough = (args: {
+  renderedResponse: Record<string, unknown>;
+  meta: Record<string, unknown>;
+  finalProductReadiness: InspiredesignWorkflowProductReadiness;
+  fallbackFollowthroughSummary: string;
+}): boolean => {
+  if (args.finalProductReadiness.productSuccess) return false;
+  return [
+    args.meta.productSuccess,
+    args.renderedResponse.followthroughSummary,
+    args.renderedResponse.suggestedNextAction,
+    args.fallbackFollowthroughSummary
+  ].some((value) => value === true || hasProductReadyFollowthroughMarker(value));
+};
+
+const finalizeInspiredesignResponseGuidance = (args: {
+  renderedResponse: Record<string, unknown>;
+  meta: Record<string, unknown>;
+  finalProductReadiness: InspiredesignWorkflowProductReadiness;
+  fallbackFollowthroughSummary: string;
+}): { response: Record<string, unknown>; meta: Record<string, unknown> } => {
+  const productReadyDemoted = shouldBlockFinalInspiredesignFollowthrough(args);
+  const renderedFollowthroughSummary = typeof args.renderedResponse.followthroughSummary === "string"
+    ? args.renderedResponse.followthroughSummary
+    : args.fallbackFollowthroughSummary;
+  const followthroughSummary = productReadyDemoted
+    ? PRODUCT_READINESS_BLOCKED_SUMMARY
+    : renderedFollowthroughSummary;
+  const renderedSuggestedNextAction = typeof args.renderedResponse.suggestedNextAction === "string"
+    ? args.renderedResponse.suggestedNextAction
+    : followthroughSummary;
+  const suggestedNextAction = productReadyDemoted
+    ? PRODUCT_READINESS_BLOCKED_SUMMARY
+    : renderedSuggestedNextAction;
+  return {
+    response: {
+      ...args.renderedResponse,
+      ...args.finalProductReadiness,
+      followthroughSummary,
+      suggestedNextAction
+    },
+    meta: {
+      ...args.meta,
+      ...args.finalProductReadiness,
+      followthroughSummary,
+      suggestedNextAction
+    }
+  };
+};
 
 const isPinterestWorkflowReferenceUrl = (value: string): boolean => {
   try {
@@ -6684,16 +6866,7 @@ export const runShoppingWorkflow = async (
   const regionEnforced = plan.compiled.regionDiagnostics.length > 0
     ? plan.compiled.regionDiagnostics.every((entry) => entry.enforced)
     : false;
-  if (plan.compiled.regionDiagnostics.length > 0) {
-    alerts.push({
-      signal: "region_unenforced",
-      reasonCode: "region_unenforced",
-      state: "warning",
-      reason: "Default shopping adapters currently use provider default storefronts, so requested region filters are advisory only and not authoritative.",
-      providers: plan.compiled.regionDiagnostics.map((entry) => entry.provider),
-      requested_region: workflowInput.region ?? plan.compiled.regionDiagnostics[0]?.requestedRegion ?? ""
-    });
-  }
+  alerts.push(...buildShoppingRegionAlerts(plan.compiled.regionDiagnostics, workflowInput.region));
   let meta = withPrimaryConstraintMeta({
     selection: {
       providers: plan.compiled.effectiveProviderIds,
@@ -6964,13 +7137,14 @@ export const runInspiredesignWorkflow = async (
       captureStatus: capture.captureStatus
     });
   }
-  const motionCollation = await finalizeInspiredesignMotionArtifacts(references, motionEvidenceTempDir);
+	const motionCollation = await finalizeInspiredesignMotionArtifacts(references, motionEvidenceTempDir);
 	const pinMediaCollation = await finalizeInspiredesignPinMediaArtifacts(motionCollation.references, pinMediaEvidenceTempDir);
 	const visualCollation = await finalizeInspiredesignVisualArtifacts(pinMediaCollation.references, workflowInput.visualEvidence);
-  const finalReferences = attachInspiredesignDiscoveryProvenance(
-    visualCollation.references,
-    buildDiscoveryProvenanceByUrl(discovery)
-  );
+	const pinMediaArtifactPaths = new Set(pinMediaCollation.files.map((file) => file.path));
+	const finalReferences = attachInspiredesignDiscoveryProvenance(
+		normalizeVisualEvidenceAfterPinMedia(visualCollation.references, pinMediaArtifactPaths),
+		buildDiscoveryProvenanceByUrl(discovery)
+	);
 	const mediaAnalysisTempDirs: string[] = [];
 	let mediaAnalysis = buildDiagnosticInspiredesignMediaAnalysis();
 	let mediaAnalysisFailure: string | undefined;
@@ -7129,10 +7303,10 @@ export const runInspiredesignWorkflow = async (
     rankedPinMediaReadyReferenceCount,
     rankedAuthoritativePinterestReferenceCount
   );
-	const quality = packet.referencePatternBoard.qualitySummary;
-	const existingMetrics = typeof meta.metrics === "object" && meta.metrics !== null && !Array.isArray(meta.metrics)
-	? meta.metrics as Record<string, unknown>
-	: {};
+  const quality = packet.referencePatternBoard.qualitySummary;
+  const existingMetrics = typeof meta.metrics === "object" && meta.metrics !== null && !Array.isArray(meta.metrics)
+    ? meta.metrics as Record<string, unknown>
+    : {};
   let followthroughSummary = buildInspiredesignGuidanceFollowthroughSummary(
     packet.followthrough,
     meta,
@@ -7147,16 +7321,16 @@ export const runInspiredesignWorkflow = async (
   }
   const metaWithGuidance = {
     ...meta,
-	...(mediaAnalysisFailure ? { mediaAnalysisFailure } : {}),
-	metrics: {
-		...existingMetrics,
-		attempted_reference_count: quality.attemptedReferenceCount,
-		missing_screenshot_count: quality.missingScreenshotCount,
-		all_attempt_failed_capture_count: quality.allAttemptFailedCaptureCount,
-		all_attempt_missing_screenshot_count: quality.allAttemptMissingScreenshotCount,
-		all_attempt_visual_failure_count: quality.allAttemptVisualFailureCount,
-		all_attempt_motion_failure_count: quality.allAttemptMotionFailureCount
-	},
+    ...(mediaAnalysisFailure ? { mediaAnalysisFailure } : {}),
+    metrics: {
+      ...existingMetrics,
+      attempted_reference_count: quality.attemptedReferenceCount,
+      missing_screenshot_count: quality.missingScreenshotCount,
+      all_attempt_failed_capture_count: quality.allAttemptFailedCaptureCount,
+      all_attempt_missing_screenshot_count: quality.allAttemptMissingScreenshotCount,
+      all_attempt_visual_failure_count: quality.allAttemptVisualFailureCount,
+      all_attempt_motion_failure_count: quality.allAttemptMotionFailureCount
+    },
     ...productReadiness,
     pinterestEvidenceRequired,
     followthroughSummary,
@@ -7175,41 +7349,47 @@ export const runInspiredesignWorkflow = async (
     designMarkdown: packet.designMarkdown,
     implementationPlanMarkdown: packet.implementationPlanMarkdown,
     prototypeGuidanceMarkdown: packet.prototypeGuidanceMarkdown,
-	    evidence: packet.evidence,
-	    visualEvidence: packet.visualEvidence,
-	    screenshotIndex: packet.screenshotIndex,
-	    motionEvidence: packet.motionEvidence,
-	    authorityScreenshotIndex: manifestBackedScreenshotIndex,
-	    authorityMotionEvidence: manifestBackedMotionEvidence,
-      pinMediaEvidence: packet.pinMediaEvidence,
-      pinMediaIndex: packet.pinMediaIndex,
-      authorityPinMediaIndex: manifestBackedPinMediaIndex,
-      mediaAnalysis: packet.mediaAnalysis,
-	    rankedReferences: packet.rankedReferences,
+    evidence: packet.evidence,
+    visualEvidence: packet.visualEvidence,
+    screenshotIndex: packet.screenshotIndex,
+    motionEvidence: packet.motionEvidence,
+    authorityScreenshotIndex: manifestBackedScreenshotIndex,
+    authorityMotionEvidence: manifestBackedMotionEvidence,
+    pinMediaEvidence: packet.pinMediaEvidence,
+    pinMediaIndex: packet.pinMediaIndex,
+    authorityPinMediaIndex: manifestBackedPinMediaIndex,
+    mediaAnalysis: packet.mediaAnalysis,
+    rankedReferences: packet.rankedReferences,
     referencePatternBoard: buildInspiredesignRankedArtifactPatternBoard(
       packet.generationPlan.referencePatternBoard,
       packet.referencePatternBoard
     ),
     metaPromptMarkdown: packet.metaPromptMarkdown,
-	    nextStepGuidance,
-	    meta: metaWithGuidance
-	  });
-	  const renderedProductSuccess = (rendered.response as { productSuccess?: unknown }).productSuccess === true;
-	  const finalProductReadiness = renderedProductSuccess && productReadiness.productSuccess
-	    ? productReadiness
-	    : {
-	      ...productReadiness,
-	      ready: false,
-	      productSuccess: false,
-	      artifactAuthority: "diagnostic_only" as const,
-	      evidenceAuthority: "diagnostic_only" as const
-		    };
-	  const renderedFilesForBundle = finalProductReadiness.productSuccess
-	    ? rendered.files
-	    : rendered.files.filter((file) => !INSPIREDESIGN_PRODUCT_READY_ONLY_ARTIFACTS.has(file.path));
-	  const bundle = await createArtifactBundle({
-	    namespace: "inspiredesign",
-	    outputDir: artifactRoot,
+    nextStepGuidance,
+    meta: metaWithGuidance
+  });
+  const renderedProductSuccess = (rendered.response as { productSuccess?: unknown }).productSuccess === true;
+  const finalProductReadiness = renderedProductSuccess && productReadiness.productSuccess
+    ? productReadiness
+    : {
+      ...productReadiness,
+      ready: false,
+      productSuccess: false,
+      artifactAuthority: "diagnostic_only" as const,
+      evidenceAuthority: "diagnostic_only" as const
+    };
+  const renderedFilesForBundle = finalProductReadiness.productSuccess
+    ? rendered.files
+    : rendered.files.filter((file) => !INSPIREDESIGN_PRODUCT_READY_ONLY_ARTIFACTS.has(file.path));
+  const finalGuidance = finalizeInspiredesignResponseGuidance({
+    renderedResponse: rendered.response,
+    meta: metaWithGuidance,
+    finalProductReadiness,
+    fallbackFollowthroughSummary: followthroughSummary
+  });
+  const bundle = await createArtifactBundle({
+    namespace: "inspiredesign",
+    outputDir: artifactRoot,
 	    ttlHours: workflowInput.ttlHours,
 	    files: [
         ...renderedFilesForBundle,
@@ -7222,24 +7402,20 @@ export const runInspiredesignWorkflow = async (
 
   if (workflowInput.mode === "path") {
     return {
-      ...rendered.response,
-      ...finalProductReadiness,
+      ...finalGuidance.response,
       artifact_path: bundle.basePath,
       meta: {
-        ...metaWithGuidance,
-        ...finalProductReadiness,
+        ...finalGuidance.meta,
         artifact_manifest: bundle.manifest
       }
     };
   }
 
   return {
-    ...rendered.response,
-    ...finalProductReadiness,
+    ...finalGuidance.response,
     artifact_path: bundle.basePath,
     meta: {
-      ...metaWithGuidance,
-      ...finalProductReadiness,
+      ...finalGuidance.meta,
       artifact_manifest: bundle.manifest
     }
   };

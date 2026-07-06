@@ -2812,7 +2812,7 @@ describe("inspiredesign workflow", () => {
 	expect(motionEvidence.motionEvidence).toEqual([]);
 	});
 
-	it("keeps pin-media product readiness when post-pin screenshot fails and handoff names the saved media", async () => {
+	it("keeps pin-media product readiness when post-pin screenshot is unavailable and records visual lane as skipped", async () => {
 	const runtime = toRuntime({
 		fetch: async (input: { url: string }) => makeAggregate({
 		records: [
@@ -2868,39 +2868,130 @@ describe("inspiredesign workflow", () => {
 		};
 		motionCapture?: { status: string; reason: string; authority: string };
 	};
-	const screenshotIndex = JSON.parse(readFileSync(join(artifactPath, "screenshot-index.json"), "utf8")) as {
-		screenshots: unknown[];
-	};
-	const rankedReferencesText = readFileSync(join(artifactPath, "ranked-references.json"), "utf8");
-	const handoffText = readFileSync(join(artifactPath, INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff), "utf8");
-	const implementationPlanText = readFileSync(join(artifactPath, INSPIREDESIGN_HANDOFF_FILES.implementationPlanMarkdown), "utf8");
+		const screenshotIndex = JSON.parse(readFileSync(join(artifactPath, "screenshot-index.json"), "utf8")) as {
+			screenshots: unknown[];
+		};
+		const visualEvidence = JSON.parse(readFileSync(join(artifactPath, "visual-evidence.json"), "utf8")) as {
+			visualEvidence: Array<{ visual: { status: string; path?: string; failure?: string; warnings: string[] } }>;
+		};
+		const rankedReferencesText = readFileSync(join(artifactPath, "ranked-references.json"), "utf8");
+		const handoffText = readFileSync(join(artifactPath, INSPIREDESIGN_HANDOFF_FILES.designAgentHandoff), "utf8");
+		const implementationPlanText = readFileSync(join(artifactPath, INSPIREDESIGN_HANDOFF_FILES.implementationPlanMarkdown), "utf8");
 	const prototypeGuidanceText = readFileSync(join(artifactPath, INSPIREDESIGN_HANDOFF_FILES.prototypeGuidance), "utf8");
 
 	expect(output).toEqual(expect.objectContaining({
 		productSuccess: true,
 		artifactAuthority: "product_ready",
 		evidenceAuthority: "pin_media_ready"
-	}));
-	expect(screenshotIndex.screenshots).toEqual([]);
-	expect(evidence.visualEvidenceAfterPinMedia).toEqual(expect.objectContaining({
-		status: "failed",
-		authority: "pin_media_ready",
-		references: [expect.objectContaining({
-		status: "failed",
-		reason: "screenshot_failed_after_pin_media",
-		failure: "Primary visual evidence capture unavailable after pin media.",
-		pinMediaPath: "pin-media-evidence/b7a5656033e1/main.jpg"
-		})]
-	}));
+		}));
+		expect(screenshotIndex.screenshots).toEqual([]);
+		expect(visualEvidence.visualEvidence[0]?.visual).toEqual(expect.objectContaining({
+			status: "skipped",
+			warnings: expect.arrayContaining(["pin_media_visual_authority_satisfied"])
+		}));
+		expect(visualEvidence.visualEvidence[0]?.visual.failure).toBeUndefined();
+		expect(visualEvidence.visualEvidence[0]?.visual.path).toBeUndefined();
+		expect(evidence.visualEvidenceAfterPinMedia).toEqual(expect.objectContaining({
+			status: "skipped",
+			authority: "pin_media_ready",
+			references: [expect.objectContaining({
+			status: "skipped",
+			reason: "screenshot_skipped_after_pin_media",
+			pinMediaPath: "pin-media-evidence/b7a5656033e1/main.jpg"
+			})]
+		}));
 	expect(evidence.motionCapture).toEqual(expect.objectContaining({
 		status: "not_applicable",
 		reason: "still_image_pin_media",
 		authority: "motion_evidence_browser_replay_only"
 	}));
-	for (const payload of [rankedReferencesText, handoffText, implementationPlanText, prototypeGuidanceText]) {
-		expect(payload).toContain("pin-media-evidence/b7a5656033e1/main.jpg");
-		expect(payload).not.toContain("No live reference cues were captured");
-	}
+		for (const payload of [rankedReferencesText, handoffText, implementationPlanText, prototypeGuidanceText]) {
+			expect(payload).toContain("pin-media-evidence/b7a5656033e1/main.jpg");
+			expect(payload).not.toContain("No live reference cues were captured");
+			expect(payload).not.toContain("Screenshot failure");
+		}
+		});
+
+	it("does not treat policy-skipped post-pin visual evidence as pin-media-satisfied supplemental evidence", async () => {
+	const runtime = toRuntime({
+		fetch: async (input: { url: string }) => makeAggregate({
+		records: [
+			normalizeRecord("social/pinterest", "social", {
+			url: input.url,
+			title: "Pinterest recovered image pin reference",
+			content: "Pin media is available, but viewport capture is policy-blocked.",
+			attributes: {
+				pinterestMediaClassification: {
+				kind: "unknown_pin",
+				mediaSignals: ["pin_url"],
+				rejectionReasons: ["visual_policy_blocked"],
+				sourcePageQuality: "pin_media"
+				}
+			}
+			})
+		]
+		})
+	});
+
+	const output = await runInspiredesignWorkflow(runtime, {
+		brief: "Design a restaurant landing page with Pinterest references",
+		harvest: true,
+		providers: ["social/pinterest"],
+		urls: ["https://www.pinterest.com/pin/27654985208435505/"],
+		outputDir: makeOutputDir(),
+		mode: "path",
+		visualEvidence: "required",
+		includePrototypeGuidance: true
+	}, {
+		capturePinMediaEvidence: async (_url, options) => {
+		writeFileSync(options.pinMediaEvidencePath, validPinMediaBytes());
+		return makePinterestImagePinMediaCapture(_url, options, "https://i.pinimg.com/originals/pin-main-final.jpg");
+		},
+		captureVisualEvidence: async () => ({
+		status: "skipped" as const,
+		kind: "viewport" as const,
+		fullPage: false,
+		capturedAt: "2026-05-23T00:00:00.000Z",
+		warnings: ["policy:policy_blocked"],
+		failure: "Policy blocked viewport capture."
+		})
+	});
+
+	const artifactPath = String(output.artifact_path);
+	const visualEvidence = JSON.parse(readFileSync(join(artifactPath, "visual-evidence.json"), "utf8")) as {
+		visualEvidence: Array<{ visual: { status: string; path?: string; failure?: string; warnings: string[] } }>;
+	};
+	const evidence = JSON.parse(readFileSync(join(artifactPath, "evidence.json"), "utf8")) as {
+		visualEvidenceAfterPinMedia?: {
+		status: string;
+		authority: string;
+		references: Array<{ status: string; reason: string; pinMediaPath?: string; warnings?: string[] }>;
+		};
+	};
+
+	expect(output).toEqual(expect.objectContaining({
+		productSuccess: true,
+		artifactAuthority: "product_ready",
+		evidenceAuthority: "pin_media_ready"
+	}));
+	expect(visualEvidence.visualEvidence[0]?.visual).toEqual(expect.objectContaining({
+		status: "skipped",
+		failure: "Policy blocked viewport capture.",
+		warnings: ["policy:policy_blocked"]
+	}));
+	expect(visualEvidence.visualEvidence[0]?.visual.warnings).not.toContain("pin_media_visual_authority_satisfied");
+	expect(visualEvidence.visualEvidence[0]?.visual.warnings).not.toContain("supplemental_visual_evidence_unavailable");
+	expect(visualEvidence.visualEvidence[0]?.visual.path).toBeUndefined();
+	expect(evidence.visualEvidenceAfterPinMedia).toEqual(expect.objectContaining({
+		status: "skipped",
+		authority: "pin_media_ready",
+		references: [expect.objectContaining({
+		status: "skipped",
+		reason: "screenshot_policy_skipped_after_pin_media",
+		pinMediaPath: "pin-media-evidence/b7a5656033e1/main.jpg",
+		warnings: ["policy:policy_blocked"]
+		})]
+	}));
 	});
 
 	it("persists pin media for canonical pins even when provider classification sees login chrome", async () => {

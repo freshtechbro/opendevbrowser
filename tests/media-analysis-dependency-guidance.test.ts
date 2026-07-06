@@ -233,7 +233,7 @@ describe("media-analysis dependency guidance", () => {
       expect(content, `${section.label} should preserve pin-media authority`).toContain("pin-media-index.json");
       expect(content, `${section.label} should preserve media-analysis advisory status`).toContain("media-analysis.json");
       expect(content, `${section.label} should preserve browser replay authority`).toContain("motion-evidence.json");
-      expect(normalizedContent, `${section.label} should describe screenshot failure as non-blocking`).toContain("screenshot failure after pin-media success is a non-blocking caveat");
+      expect(normalizedContent, `${section.label} should describe skipped supplemental screenshots`).toContain("unavailable supplemental viewport screenshot evidence is recorded as skipped");
     }
   });
 

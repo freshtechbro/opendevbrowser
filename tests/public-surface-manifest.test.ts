@@ -116,9 +116,16 @@ describe("public surface manifest", () => {
   it("documents inspiredesign readiness blockers and Pinterest evidence prerequisites", () => {
     const inspiredesignCommand = GENERATED_MANIFEST.cli.commands.find((command) => command.name === "inspiredesign");
     const notes = inspiredesignCommand?.notes.join(" ") ?? "";
+    const shoppingCommand = GENERATED_MANIFEST.cli.commands.find((command) => command.name === "shopping");
+    const shoppingNotes = shoppingCommand?.notes.join(" ") ?? "";
+    const shoppingTool = GENERATED_MANIFEST.tools.entries.find((entry) => entry.name === "opendevbrowser_shopping_run");
+    const shoppingToolNotes = shoppingTool?.notes?.join(" ") ?? "";
     const inspiredesignTool = GENERATED_MANIFEST.tools.entries.find((entry) => entry.name === "opendevbrowser_inspiredesign_run");
+    const toolNotes = inspiredesignTool?.notes?.join(" ") ?? "";
     const helpText = getHelpText();
 
+    expect(shoppingNotes).toContain("region_unenforced alert is emitted only for selected provider diagnostics that did not enforce the requested region");
+    expect(shoppingToolNotes).toContain("region_unenforced alert is emitted only for selected provider diagnostics that did not enforce the requested region");
     expect(notes).toContain("Canvas continuation requires top-level ready=true, productSuccess=true, artifactAuthority=product_ready, non-empty ranked references");
     expect(notes).toContain("Canonical Pinterest pin-media harvests require evidenceAuthority=pin_media_ready and manifest-backed pin-media-index.json");
     expect(notes).toContain("Canonical Pinterest pin-media harvests require evidenceAuthority=pin_media_ready and manifest-backed pin-media-index.json");
@@ -133,6 +140,12 @@ describe("public surface manifest", () => {
     expect(notes).toContain("diagnostic-only captures");
     expect(inspiredesignTool?.description).toContain("screenshot and screencast evidence for non-Pinterest capture lanes");
     expect(inspiredesignTool?.description).toContain("required manifest-backed pin-media authority for canonical Pinterest pins");
+    expect(toolNotes).toContain("Continue only when top-level ready=true, productSuccess=true, artifactAuthority=product_ready");
+    expect(toolNotes).toContain("ranked references are non-empty");
+    expect(toolNotes).toContain("no matching nextStepGuidance.doNotProceedIf blockers remain active");
+    expect(toolNotes).toContain("manifest-backed authority evidence exists");
+    expect(toolNotes).toContain("evidenceAuthority is not diagnostic_only");
+    expect(toolNotes).toContain("canonical Pinterest pin-media harvests report evidenceAuthority=pin_media_ready with manifest-backed pin-media-index.json");
     expect(helpText).toContain("Require top-level ready=true, productSuccess=true, artifactAuthority=product_ready, non-empty ranked references");
     expect(helpText).toContain("Canonical Pinterest pin-media harvests require evidenceAuthority=pin_media_ready plus manifest-backed pin-media-index.json");
     expect(helpText).toContain("snapshot_ready and motion_ready are not substitutes");
@@ -148,7 +161,7 @@ describe("public surface manifest", () => {
     expect(notes).toContain("manifest-backed first-party pin-media bytes");
     expect(notes).toContain("discovery-diagnostics.json records accepted and rejected URLs, blocker diagnostics, and recovery context");
     expect(notes).toContain("login/challenge and search-shell diagnostics are recovery paths, not product-ready evidence");
-    expect(notes).toContain("Screenshot failure after pin-media success is a non-blocking caveat when pin-media authority is complete");
+    expect(notes).toContain("unavailable supplemental viewport screenshot evidence is recorded as skipped and satisfied by pin media");
     expect(notes).toContain("pin-media-index.json remains Pinterest authority");
     expect(notes).toContain("media-analysis.json remains advisory");
     expect(notes).toContain("motion-evidence.json remains browser replay authority");

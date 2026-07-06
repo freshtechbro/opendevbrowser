@@ -74,6 +74,23 @@ describe("inspiredesign brief expansion", () => {
     expect(result.format.route.navigationModel).toBe("global-header");
   });
 
+  it("keeps default editorial business focus vertical-neutral for hospitality briefs", async () => {
+    const { expandInspiredesignBrief } = await loadBriefExpansion();
+    const result = expandInspiredesignBrief(
+      "Premium independent restaurant landing page with editorial food photography, reservation CTA, warm hospitality, cinematic whitespace, and refined typography."
+    );
+
+    expect(result.format.id).toBe("premium-editorial-landing-page");
+    expect(result.format.businessFocus).toEqual(expect.arrayContaining([
+      "premium brand campaigns",
+      "hospitality and lifestyle experiences"
+    ]));
+    expect(result.advancedBrief).not.toContain("premium SaaS marketing");
+    expect(result.advancedBrief).not.toContain("AI consulting services");
+    expect(result.advancedBrief).not.toContain("enterprise advisory landing pages");
+    expect(result.advancedBrief).not.toContain("docs-first brands");
+  });
+
   it("removes negated dashboard phrases with modifiers before scoring", async () => {
     const { expandInspiredesignBrief } = await loadBriefExpansion();
     const result = expandInspiredesignBrief(

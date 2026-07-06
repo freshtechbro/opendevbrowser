@@ -867,7 +867,7 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
   ],
   shopping: [
     WORKFLOW_OUTPUT_PREFERENCE_NOTE,
-    "Treat --region as advisory unless the workflow output reports region_authoritative=true."
+    "Treat --region as advisory unless the workflow output reports region_authoritative=true. The region_unenforced alert is emitted only for selected provider diagnostics that did not enforce the requested region; enforced-region diagnostics do not create that warning."
   ],
   "product-video": [
     WORKFLOW_OUTPUT_PREFERENCE_NOTE,
@@ -897,7 +897,7 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
     "Canonical Pinterest pin-media harvest opens the exact canonical pin in the active managed or extension workflow session before extracting persisted first-party bytes. Extension /ops remains the best live-tab reuse path, and explicit CDP profiles remain a browser/session primitive lane until provider workflows expose an explicit-CDP transport selector.",
     "Harvest JSON is metadata-only: screenshots, motion evidence, and pin-media evidence are artifact files referenced by relative paths, hashes, viewport metadata, frame counts, dimensions, provenance, and warnings.",
     "ranked-references.json includes rejectedReferences for captured-but-rejected diagnostics such as interface_chrome_shell without promoting those captures into design references.",
-    "Pinterest product readiness is pin-media-first: canonical pin URLs become product-ready only when first-party pin-media evidence is captured, persisted, manifest-backed, and free of blocking warnings. Snapshot and screencast artifacts can inform diagnostics or motion, but they do not satisfy required Pinterest pin-media readiness. The exact login_or_challenge_state and strict byte-backed interface_chrome_shell diagnostics are non-blocking only for trusted first-party manifest-backed pin-media bytes; broader login, challenge, captcha, search-shell, promoted, ad, blank, tiny, or chrome-only blockers still demote readiness unless query-discovered canonical pins also produce complete pin-media authority. Screenshot failure after pin-media success is a non-blocking caveat when pin-media authority is complete; pin-media-index.json remains Pinterest authority, media-analysis.json remains advisory, and motion-evidence.json remains browser replay authority.",
+    "Pinterest product readiness is pin-media-first: canonical pin URLs become product-ready only when first-party pin-media evidence is captured, persisted, manifest-backed, and free of blocking warnings. Snapshot and screencast artifacts can inform diagnostics or motion, but they do not satisfy required Pinterest pin-media readiness. The exact login_or_challenge_state and strict byte-backed interface_chrome_shell diagnostics are non-blocking only for trusted first-party manifest-backed pin-media bytes; broader login, challenge, captcha, search-shell, promoted, ad, blank, tiny, or chrome-only blockers still demote readiness unless query-discovered canonical pins also produce complete pin-media authority. When pin-media authority is complete, unavailable supplemental viewport screenshot evidence is recorded as skipped and satisfied by pin media, not as product-readiness failure; pin-media-index.json remains Pinterest authority, media-analysis.json remains advisory, and motion-evidence.json remains browser replay authority.",
     "Load opendevbrowser-motion-design before turning harvest motion posture into implementation timing, scroll choreography, reduced-motion behavior, or temporal proof."
   ],
   "macro-resolve": [
@@ -1063,7 +1063,8 @@ const TOOL_SURFACE_NOTES: Partial<Record<string, readonly string[]>> = {
     WORKFLOW_OUTPUT_PREFERENCE_NOTE
   ],
   opendevbrowser_shopping_run: [
-    WORKFLOW_OUTPUT_PREFERENCE_NOTE
+    WORKFLOW_OUTPUT_PREFERENCE_NOTE,
+    "Treat --region as advisory unless the workflow output reports region_authoritative=true. The region_unenforced alert is emitted only for selected provider diagnostics that did not enforce the requested region; enforced-region diagnostics do not create that warning."
   ],
   opendevbrowser_product_video_run: [
     WORKFLOW_OUTPUT_PREFERENCE_NOTE
@@ -1073,6 +1074,7 @@ const TOOL_SURFACE_NOTES: Partial<Record<string, readonly string[]>> = {
   ],
   opendevbrowser_inspiredesign_run: [
     WORKFLOW_OUTPUT_PREFERENCE_NOTE,
+    "Continue only when top-level ready=true, productSuccess=true, artifactAuthority=product_ready, ranked references are non-empty, no matching nextStepGuidance.doNotProceedIf blockers remain active, manifest-backed authority evidence exists, evidenceAuthority is not diagnostic_only, and canonical Pinterest pin-media harvests report evidenceAuthority=pin_media_ready with manifest-backed pin-media-index.json.",
     MEDIA_ANALYSIS_DEPENDENCY_NOTE,
     MEDIA_ANALYSIS_STATUS_NOTE
   ]
