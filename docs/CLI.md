@@ -72,12 +72,13 @@ Load extension unpacked from:
 
 Set `OPDEVBROWSER_SKIP_POSTINSTALL_SKILL_SYNC=1` before `npm install` only if you need a packaging smoke test that exits the legacy package lifecycle shim before built postinstall code imports. Set `OPDEVBROWSER_SKIP_INSTALL_AUTOSTART_RECONCILIATION=1` when you only want to skip install-time daemon auto-start reconciliation.
 
-By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI/Agents locations. Use `--skills-local` for project-local locations or `--no-skills` to skip CLI-managed skill installation. Package installation (`npm install -g`, local tarball install, or equivalent) also best-effort syncs the canonical bundled packs into the managed global skill targets during package `postinstall`. Raw npm global package postinstall best-effort reconciles daemon auto-start only when npm lifecycle context clearly indicates a global install; local, ambiguous, conflicting, or non-npm package-manager contexts skip auto-start without failing package installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
+By default (`--skills-global`), the CLI installs bundled skills to global OpenCode/Codex/ClaudeCode/AmpCLI/Agents locations. Codex-managed OpenDevBrowser packs use the shared Agents root so Codex does not show duplicate `opendevbrowser-*` entries from both `$CODEX_HOME/skills` and `~/.agents/skills`. Use `--skills-local` for project-local locations or `--no-skills` to skip CLI-managed skill installation. Package installation (`npm install -g`, local tarball install, or equivalent) also best-effort syncs the canonical bundled packs into the managed global skill targets during package `postinstall`. Raw npm global package postinstall best-effort reconciles daemon auto-start only when npm lifecycle context clearly indicates a global install; local, ambiguous, conflicting, or non-npm package-manager contexts skip auto-start without failing package installation. Use `--full` to always create `opendevbrowser.jsonc` and pre-extract extension assets.
 
 Installer inventory:
 - `--skills-global` and `--skills-local` sync the 10 canonical `opendevbrowser-*` packs under `skills/` into managed global or project-local agent directories.
+- Codex managed installs write OpenDevBrowser packs through `~/.agents/skills` or `./.agents/skills`; managed legacy `.codex/skills` duplicates are removed during sync, while markerless user-owned `.codex` directories are preserved.
 - Managed installs write a target-level ownership marker, so default updates and uninstall only act on CLI-managed targets or older config installs that already contain canonical packs.
-- Reinstall and update refresh drifted managed copies, adopt matching markerless canonical copies by writing ownership sentinels, and preserve drifted markerless directories for user review.
+- Reinstall and update refresh drifted managed copies, adopt matching markerless canonical copies when a managed OpenDevBrowser target is being repaired or promoted to all canonical packs, and preserve drifted markerless directories outside managed repair for user review.
 - Uninstall removes marker- or sentinel-managed canonical packs and leaves unrelated directories untouched.
 
 `OPENCODE_CONFIG_DIR` changes config lookup, but the extracted unpacked-extension copy created by `--full` still lives at `~/.config/opencode/opendevbrowser/extension`.
@@ -1653,8 +1654,8 @@ Notes:
 | `--output-format` | | `text`, `json`, or `stream-json` |
 | `--transport` | | Transport selector for transport-aware commands (`status`: `relay|native`; `annotate`: `auto|direct|relay`) |
 | `--daemon` | | Daemon status selector for `status` |
-| `--skills-global` | | Install skills to global OpenCode/Codex/ClaudeCode/AmpCLI/Agents directories |
-| `--skills-local` | | Install skills to project-local OpenCode/Codex/ClaudeCode/AmpCLI/Agents directories |
+| `--skills-global` | | Install skills to global OpenCode/Codex-through-Agents/ClaudeCode/AmpCLI/Agents directories |
+| `--skills-local` | | Install skills to project-local OpenCode/Codex-through-Agents/ClaudeCode/AmpCLI/Agents directories |
 | `--no-skills` | | Skip installing bundled skills |
 | `--help` | `-h` | Show usage information |
 | `--version` | `-v` | Show version number |

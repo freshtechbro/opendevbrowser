@@ -116,7 +116,7 @@ src/cli/
 - **JSON pipes:** Ensure valid JSON for piping
 - **Help discoverability:** Generated help must keep the exact lookup labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use` easy to find without describing a desktop agent.
 - **Package lifecycle:** Raw npm global package postinstall targets `dist/cli/index.js`, not `scripts/postinstall-sync-skills.mjs`; local, ambiguous, conflicting, or non-npm package-manager contexts skip autostart without failing install.
-- **Skill targets:** Installer skill sync covers OpenCode, Codex, ClaudeCode, AmpCLI, and Agents (`~/.agents/skills` plus project `./.agents/skills`) targets; keep CLI docs, README, onboarding, and SkillLoader discovery aligned.
+- **Skill targets:** Installer skill sync covers OpenCode, Codex-through-Agents, ClaudeCode, AmpCLI, and Agents (`~/.agents/skills` plus project `./.agents/skills`) targets; managed root-marker repairs may adopt stale markerless canonical packs, managed legacy Codex duplicates may be removed only with marker or sentinel ownership, and unmanaged markerless directories stay preserved. Keep CLI docs, README, onboarding, and SkillLoader discovery aligned.
 - **Parity contract:** Keep CLI runtime commands aligned with tool/runtime parity gate in `tests/parity-matrix.test.ts` (`rpc` remains CLI-only by design)
 
 ## Anti-Patterns

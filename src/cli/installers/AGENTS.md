@@ -24,6 +24,8 @@ src/cli/installers/
 - Package postinstall targets the packaged `dist/cli/index.js`; never persist `scripts/postinstall-sync-skills.mjs` as an autostart command.
 - Keep `postinstall-skill-sync.ts` re-export compatibility stable for the shipped script.
 - Skill installation must preserve managed target resolution and integrity checks; do not copy partial packs silently.
+- Codex-managed OpenDevBrowser packs install through the shared Agents roots, not standalone `.codex/skills` roots; standalone Codex roots are compatibility discovery roots and cleanup is limited to marker or sentinel owned duplicates.
+- Full canonical skill sync may adopt markerless canonical packs only when the target already has an OpenDevBrowser managed root marker, such as partial-marker repair. Unmanaged markerless directories must stay preserved.
 - Config writes must preserve private permissions and atomic-write behavior.
 
 ## Related Surfaces

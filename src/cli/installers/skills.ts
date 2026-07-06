@@ -2,7 +2,13 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import { ensureDir } from "../utils/config";
-import { getBundledSkillsDir, getGlobalSkillTargets, getLocalSkillTargets, type SkillTarget } from "../utils/skills";
+import {
+  getBundledSkillsDir,
+  getGlobalSkillTargets,
+  getLegacyCodexSkillTargets,
+  getLocalSkillTargets,
+  type SkillTarget
+} from "../utils/skills";
 import { listBundledSkillDirectories } from "../../skills/bundled-skill-directories";
 
 export type SkillInstallMode = "global" | "local";
@@ -238,6 +244,77 @@ function removeManagedPackArtifacts(
   }
 
   return { removed, missing };
+}
+
+function isManagedInTarget(
+  targetDir: string,
+  packName: string,
+  marker: ManagedSkillsMarker | null
+): boolean {
+  const targetPath = path.join(targetDir, packName);
+  return marker?.managesAllCanonicalPacks === true
+    || marker?.managedPacks.includes(packName) === true
+    || readManagedSkillFingerprint(targetPath) !== null;
+}
+
+function getComparableDirectoryPaths(targetDir: string): string[] {
+  const resolvedPath = path.resolve(targetDir);
+  if (!fs.existsSync(resolvedPath)) {
+    return [resolvedPath];
+  }
+
+  try {
+    const realPath = path.resolve(fs.realpathSync(resolvedPath));
+    return realPath === resolvedPath ? [resolvedPath] : [resolvedPath, realPath];
+  } catch (error) {
+    if (error instanceof Error) {
+      return [resolvedPath];
+    }
+    throw error;
+  }
+}
+
+function removeManagedLegacyCodexDuplicates(
+  mode: SkillInstallMode,
+  targets: readonly SkillTarget[],
+  packNames: readonly string[]
+): void {
+  const syncsSharedCodexAgentsRoot = targets.some((target) => {
+    return target.agents.includes("codex") && target.agents.includes("agents");
+  });
+  if (!syncsSharedCodexAgentsRoot) {
+    return;
+  }
+
+  const activeTargetPaths = new Set(
+    targets.flatMap((target) => getComparableDirectoryPaths(target.dir))
+  );
+  for (const target of getLegacyCodexSkillTargets(mode)) {
+    const legacyTargetPaths = getComparableDirectoryPaths(target.dir);
+    if (legacyTargetPaths.some((candidatePath) => activeTargetPaths.has(candidatePath))) {
+      continue;
+    }
+    if (!fs.existsSync(target.dir) || !isDirectoryPath(target.dir)) {
+      continue;
+    }
+    const marker = readManagedSkillsMarker(target.dir);
+    const removablePackNames = packNames.filter((packName) => {
+      return isManagedInTarget(target.dir, packName, marker);
+    });
+    if (removablePackNames.length === 0) {
+      continue;
+    }
+
+    removeManagedPackArtifacts(target.dir, removablePackNames);
+    const remainingManagedPackNames = (marker?.managedPacks ?? []).filter((packName) => {
+      return !removablePackNames.includes(packName);
+    });
+    if (remainingManagedPackNames.length > 0) {
+      writeManagedSkillsMarker(target.dir, remainingManagedPackNames, false);
+    } else {
+      removeManagedSkillsMarker(target.dir);
+    }
+  }
 }
 
 function formatSummary(parts: string[], totalTargets: number, failures: number): string {
@@ -489,11 +566,14 @@ export function syncBundledSkillsForTargets(
           const preexistingSentinel = readManagedSkillFingerprint(targetPath) !== null;
           const preexistingMarkerOwnership = marker?.managesAllCanonicalPacks === true
             || markerManagedPackNames.has(packName);
+          const fullCanonicalPromotionRefresh = marker !== null
+            && managedTarget.managedPackNames === undefined
+            && managesAllCanonicalPacks;
           const outcome = syncSkillDirectory(
             sourcePath,
             targetPath,
             sourceFingerprint,
-            preexistingSentinel || preexistingMarkerOwnership
+            preexistingSentinel || preexistingMarkerOwnership || fullCanonicalPromotionRefresh
           );
           if (outcome !== "preserved") {
             writeManagedSkillSentinel(targetPath, packName, sourceFingerprint);
@@ -545,6 +625,10 @@ export function syncBundledSkillsForTargets(
           error: message
         });
       }
+    }
+
+    if (targetResults.every((entry) => entry.success)) {
+      removeManagedLegacyCodexDuplicates(mode, targets, packNames);
     }
 
     const result: SkillSyncResult = {

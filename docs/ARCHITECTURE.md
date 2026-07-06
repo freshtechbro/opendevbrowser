@@ -541,7 +541,9 @@ Template assets for parity and channel checks live under
 
 Skill install/discovery sync covers the canonical `opencode`, `codex`, `claudecode`,
 `ampcli`, and `agents` ecosystems, and path discovery is documented in `README.md` and
-`docs/CLI.md`.
+`docs/CLI.md`. Managed targets use a root marker plus per-pack sentinels; full canonical
+sync can repair partial markers by adopting stale markerless canonical packs, while
+unmanaged markerless directories remain preserved for user review.
 
 Validation script:
 

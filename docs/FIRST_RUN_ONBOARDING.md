@@ -53,10 +53,9 @@ Expected:
 - CLI command inventory is available via both `npx --no-install opendevbrowser --help` and `npx --no-install opendevbrowser help`
 - packaged postinstall skill sync already populates isolated managed skill targets for:
   - `$OPENCODE_CONFIG_DIR/skill`
-  - `$CODEX_HOME/skills`
+  - `$HOME/.agents/skills` for Codex and Agents
   - `$CLAUDECODE_HOME/skills`
   - `$AMP_CLI_HOME/skills`
-  - `$HOME/.agents/skills`
 - local tarball package postinstall skips daemon auto-start because the npm lifecycle context is local, not a clear global install
 - each populated global skill directory contains `.opendevbrowser-managed-skills.json` plus one `.opendevbrowser-managed-skill.json` sentinel per bundled canonical pack
 

@@ -164,12 +164,11 @@ describe("postinstall skill sync", () => {
 
     expect(result.success).toBe(true);
     expect(result.skipped).toBe(false);
-    expect(result.syncResult?.installed.length).toBe(5 * bundledSkillDirectories.length);
+    expect(result.syncResult?.installed.length).toBe(4 * bundledSkillDirectories.length);
 
     const requiredPack = "opendevbrowser-design-agent";
     const targetDirs = [
       path.join(process.env.OPENCODE_CONFIG_DIR!, "skill"),
-      path.join(process.env.CODEX_HOME!, "skills"),
       path.join(process.env.CLAUDECODE_HOME!, "skills"),
       path.join(process.env.AMP_CLI_HOME!, "skills"),
       path.join(process.env.HOME!, ".agents", "skills")
@@ -178,6 +177,7 @@ describe("postinstall skill sync", () => {
     for (const targetDir of targetDirs) {
       expect(fs.existsSync(path.join(targetDir, requiredPack, "SKILL.md"))).toBe(true);
     }
+    expect(fs.existsSync(path.join(process.env.CODEX_HOME!, "skills", requiredPack, "SKILL.md"))).toBe(false);
   });
 
   it("skips automatic sync inside the repo checkout", async () => {

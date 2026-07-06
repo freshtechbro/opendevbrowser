@@ -37,14 +37,14 @@ Content organized by topic for filtering.
 
 1. `.opencode/skill/` (project-local)
 2. `~/.config/opencode/skill/` (global)
-3. `.codex/skills/` (project compatibility)
-4. `$CODEX_HOME/skills` (global compatibility; fallback `~/.codex/skills`)
+3. `.codex/skills/` (Codex project discovery compatibility only)
+4. `$CODEX_HOME/skills` (Codex global discovery compatibility only; fallback `~/.codex/skills`)
 5. `.claude/skills/` (ClaudeCode project compatibility)
 6. `$CLAUDECODE_HOME/skills` (ClaudeCode global compatibility; fallback `~/.claude/skills`)
 7. `.amp/skills/` (AmpCLI project compatibility)
 8. `$AMP_CLI_HOME/skills` (AmpCLI global compatibility; fallback `~/.amp/skills`)
-9. `.agents/skills/` (project compatibility)
-10. `~/.agents/skills/` (global compatibility)
+9. `.agents/skills/` (project Agents root and managed Codex-through-Agents install target)
+10. `~/.agents/skills/` (global Agents root and managed Codex-through-Agents install target)
 11. `skillPaths` config (custom)
 12. Bundled package `skills/` directory as a fallback when no installed copy is available
 
@@ -55,6 +55,7 @@ Content organized by topic for filtering.
 - Examples must use `opendevbrowser_*` tool names
 - Never include secrets or page data in content
 - Keep canonical guidance in `opendevbrowser-*` packs; do not reintroduce legacy alias directories.
+- Managed OpenDevBrowser installs write Codex packs through the shared Agents roots. `.codex/skills` and `$CODEX_HOME/skills` remain discovery compatibility roots only, and managed legacy duplicates there may be removed when marker or sentinel ownership proves OpenDevBrowser owns them.
 - Match the snapshot → refs → actions flow in `docs/ARCHITECTURE.md` and tool list in `docs/CLI.md`.
 - Keep first-contact quick-start wording aligned with `src/cli/onboarding-metadata.json`, generated help, and `docs/FIRST_RUN_ONBOARDING.md`.
 - When a pack touches runtime lanes, keep the exact generated-help labels `screencast / browser replay`, `desktop observation`, and `computer use / browser-scoped computer use` aligned across packs, and never describe the helper as a desktop agent.
