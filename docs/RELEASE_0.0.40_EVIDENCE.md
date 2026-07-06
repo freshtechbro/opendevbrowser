@@ -27,6 +27,8 @@ Tracks the `0.0.40` release cycle from local release preparation through npm pub
 - Release prep base: `fe15388eae1ad260341877b2feb9d58da019f2d6`.
 - Release prep PR: `https://github.com/freshtechbro/opendevbrowser/pull/112`, merged at `2026-07-06T17:37:18Z`.
 - Release prep merge commit: `16e8bae0ca9766e8674ec28ef56005d22faa5712`.
+- Final evidence PR: `https://github.com/freshtechbro/opendevbrowser/pull/113`, merged at `2026-07-06T18:03:40Z`.
+- Final evidence merge commit: `58656735bd7cb30637bda25bc2f8e07985bc7f51`.
 - npm publish: local-auth publish succeeded for `opendevbrowser@0.0.40`.
 - GitHub release workflow: dispatch succeeded with `publish_npm=false`, `publish_github_release=true`, `draft_release=false`, and `run_release_live_gates=false`.
 - Chrome Web Store manual release: attempted via browser, blocked by Google account chooser/auth requirement before upload controls.
