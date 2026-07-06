@@ -178,12 +178,12 @@ Rules:
 
 Skill-pack installation and discovery are synchronized for:
 - `opencode` (`~/.config/opencode/skill`, project `./.opencode/skill`)
-- `codex` (`$CODEX_HOME/skills` fallback `~/.codex/skills`, project `./.codex/skills`)
+- `codex` (managed OpenDevBrowser packs sync through `~/.agents/skills` and project `./.agents/skills`; `$CODEX_HOME/skills` and `./.codex/skills` remain discovery compatibility roots)
 - `claudecode` (`$CLAUDECODE_HOME/skills` fallback `~/.claude/skills`, project `./.claude/skills`)
 - `ampcli` (`$AMP_CLI_HOME/skills` fallback `~/.amp/skills`, project `./.amp/skills`)
 - `agents` (`~/.agents/skills`, project `./.agents/skills`)
 
-Install and update refresh managed copies of these canonical packs, adopt matching markerless canonical copies by writing ownership sentinels, and preserve drifted markerless directories for user review. Uninstall removes marker- or sentinel-managed canonical packs and leaves unrelated directories untouched.
+Install and update refresh managed copies of these canonical packs, adopt matching markerless canonical copies only when repairing or promoting a managed OpenDevBrowser target, and preserve drifted markerless directories outside managed repair for user review. Uninstall removes marker- or sentinel-managed canonical packs and leaves unrelated directories untouched.
 If a global npm install or update seems stale, compare `command -v opendevbrowser`, `which -a opendevbrowser`, and `npm prefix -g`; the active binary may live under a different prefix from npm's default global prefix.
 
 ## Required Operating Rules

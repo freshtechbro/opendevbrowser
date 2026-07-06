@@ -20,7 +20,8 @@ Applies to script files under `scripts/`.
 - Avoid silent failures; surface actionable exit messages.
 - Do not hardcode secrets/tokens in scripts.
 - Preserve `scripts/postinstall-sync-skills.mjs` as a best-effort package lifecycle shim: `OPDEVBROWSER_SKIP_POSTINSTALL_SKILL_SYNC=1` and repo checkout skips exit before importing built code, warnings are non-fatal, and the shim delegates package work to the built `runPackagePostinstall()` export.
-- Do not hard-code managed skill target families in scripts; the built installer owns OpenCode, Codex, ClaudeCode, AmpCLI, and Agents target resolution.
+- Do not hard-code managed skill target families in scripts; the built installer owns OpenCode, Codex-through-Agents, ClaudeCode, AmpCLI, and Agents target resolution.
+- Do not reimplement managed skill ownership in scripts; markerless canonical-pack adoption is owned by the built installer and only applies to managed OpenDevBrowser targets.
 
 ## Verification
 

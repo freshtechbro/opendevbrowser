@@ -21,7 +21,7 @@ Help-led highlights use the exact generated-help lookup labels: `screencast / br
 
 Skill-pack installation and discovery are synchronized for:
 - `opencode`: `~/.config/opencode/skill` and `./.opencode/skill`
-- `codex`: `$CODEX_HOME/skills` (fallback `~/.codex/skills`) and `./.codex/skills`
+- `codex`: managed OpenDevBrowser packs sync through `~/.agents/skills` and `./.agents/skills`; `$CODEX_HOME/skills` and `./.codex/skills` remain discovery compatibility roots
 - `claudecode`: `$CLAUDECODE_HOME/skills` (fallback `~/.claude/skills`) and `./.claude/skills`
 - `ampcli`: `$AMP_CLI_HOME/skills` (fallback `~/.amp/skills`) and `./.amp/skills`
 - `agents`: `~/.agents/skills` and `./.agents/skills`

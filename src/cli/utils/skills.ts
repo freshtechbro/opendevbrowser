@@ -63,25 +63,33 @@ function dedupeTargets(targets: Array<{ agent: SkillTargetAgent; dir: string }>)
 export function getGlobalSkillTargets(): SkillTarget[] {
   const claudeSkillsDir = path.join(getClaudeCodeHomeDir(), SKILLS_DIR_NAME);
   const ampSkillsDir = path.join(getAmpHomeDir(), SKILLS_DIR_NAME);
+  const agentsSkillsDir = getAgentsSkillDir();
 
   return dedupeTargets([
     { agent: "opencode", dir: getGlobalSkillDir() },
-    { agent: "codex", dir: path.join(getCodexHomeDir(), SKILLS_DIR_NAME) },
+    { agent: "codex", dir: agentsSkillsDir },
     { agent: "claudecode", dir: claudeSkillsDir },
     { agent: "ampcli", dir: ampSkillsDir },
-    { agent: "agents", dir: getAgentsSkillDir() }
+    { agent: "agents", dir: agentsSkillsDir }
   ]);
 }
 
 export function getLocalSkillTargets(): SkillTarget[] {
   const localClaudeSkillsDir = path.join(process.cwd(), ".claude", SKILLS_DIR_NAME);
   const localAmpSkillsDir = path.join(process.cwd(), ".amp", SKILLS_DIR_NAME);
+  const localAgentsSkillsDir = path.join(process.cwd(), ".agents", SKILLS_DIR_NAME);
 
   return dedupeTargets([
     { agent: "opencode", dir: getLocalSkillDir() },
-    { agent: "codex", dir: path.join(process.cwd(), ".codex", SKILLS_DIR_NAME) },
+    { agent: "codex", dir: localAgentsSkillsDir },
     { agent: "claudecode", dir: localClaudeSkillsDir },
     { agent: "ampcli", dir: localAmpSkillsDir },
-    { agent: "agents", dir: path.join(process.cwd(), ".agents", SKILLS_DIR_NAME) }
+    { agent: "agents", dir: localAgentsSkillsDir }
   ]);
+}
+
+export function getLegacyCodexSkillTargets(mode: "global" | "local"): SkillTarget[] {
+  return mode === "global"
+    ? [{ agents: ["codex"], dir: path.join(getCodexHomeDir(), SKILLS_DIR_NAME) }]
+    : [{ agents: ["codex"], dir: path.join(process.cwd(), ".codex", SKILLS_DIR_NAME) }];
 }

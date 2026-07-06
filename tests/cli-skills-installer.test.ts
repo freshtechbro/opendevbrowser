@@ -201,6 +201,80 @@ describe("bundled skill lifecycle sync", () => {
     )).toBe(true);
   }, 60_000);
 
+  it("coalesces Codex global installs onto the shared Agents skill root", () => {
+    const globalTargets = getGlobalSkillTargets();
+    const legacyCodexDir = path.join(process.env.CODEX_HOME!, "skills");
+    const agentsDir = path.join(process.env.HOME!, ".agents", "skills");
+
+    expect(globalTargets.some((target) => path.resolve(target.dir) === path.resolve(legacyCodexDir)))
+      .toBe(false);
+    expect(globalTargets.find((target) => path.resolve(target.dir) === path.resolve(agentsDir))?.agents)
+      .toEqual(["codex", "agents"]);
+  });
+
+  it("coalesces Codex local installs onto the project Agents skill root", () => {
+    const localTargets = getLocalSkillTargets();
+    const legacyCodexDir = path.join(process.cwd(), ".codex", "skills");
+    const agentsDir = path.join(process.cwd(), ".agents", "skills");
+
+    expect(localTargets.some((target) => path.resolve(target.dir) === path.resolve(legacyCodexDir)))
+      .toBe(false);
+    expect(localTargets.find((target) => path.resolve(target.dir) === path.resolve(agentsDir))?.agents)
+      .toEqual(["codex", "agents"]);
+  });
+
+  it("removes managed legacy Codex duplicates when syncing the shared Codex Agents target", () => {
+    const legacyCodexDir = path.join(process.env.CODEX_HOME!, "skills");
+    const agentsDir = path.join(process.env.HOME!, ".agents", "skills");
+    const packName = "opendevbrowser-best-practices";
+    const legacyPackPath = path.join(legacyCodexDir, packName);
+
+    fs.cpSync(path.join(getBundledSkillsDir(), packName), legacyPackPath, { recursive: true });
+    writeManagedMarker(legacyCodexDir, [packName], false);
+    writeManagedSentinel(legacyCodexDir, packName);
+
+    const result = syncBundledSkills("global");
+
+    expect(result.success).toBe(true);
+    expect(fs.existsSync(legacyPackPath)).toBe(false);
+    expect(fs.existsSync(path.join(legacyCodexDir, managedSkillsMarkerName))).toBe(false);
+    expect(fs.existsSync(path.join(agentsDir, packName, "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(agentsDir, packName, managedSkillSentinelName))).toBe(true);
+  }, 60_000);
+
+  it("keeps shared Agents packs when CODEX_HOME resolves to the Agents root", () => {
+    const agentsRoot = path.join(process.env.HOME!, ".agents");
+    process.env.CODEX_HOME = agentsRoot;
+    const agentsDir = path.join(agentsRoot, "skills");
+    const packName = "opendevbrowser-best-practices";
+
+    const result = syncBundledSkills("global");
+
+    expect(result.success).toBe(true);
+    expect(fs.existsSync(path.join(agentsDir, packName, "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(agentsDir, packName, managedSkillSentinelName))).toBe(true);
+    expect(fs.existsSync(path.join(agentsDir, managedSkillsMarkerName))).toBe(true);
+  }, 60_000);
+
+  it("preserves markerless legacy Codex user drift while syncing shared Agents packs", () => {
+    const legacyCodexDir = path.join(process.env.CODEX_HOME!, "skills");
+    const agentsDir = path.join(process.env.HOME!, ".agents", "skills");
+    const packName = "opendevbrowser-best-practices";
+    const legacyPackPath = path.join(legacyCodexDir, packName);
+    const legacySkillPath = path.join(legacyPackPath, "SKILL.md");
+    const driftedContent = "---\nname: opendevbrowser-best-practices\nversion: 0.0.0\n---\n# User-owned Codex drift\n";
+
+    fs.mkdirSync(legacyPackPath, { recursive: true });
+    fs.writeFileSync(legacySkillPath, driftedContent, "utf8");
+
+    const result = syncBundledSkills("global");
+
+    expect(result.success).toBe(true);
+    expect(fs.readFileSync(legacySkillPath, "utf8")).toBe(driftedContent);
+    expect(fs.existsSync(path.join(legacyPackPath, managedSkillSentinelName))).toBe(false);
+    expect(fs.existsSync(path.join(agentsDir, packName, "SKILL.md"))).toBe(true);
+  }, 60_000);
+
   it("adopts matching markerless canonical packs in the global Agents target during full sync", () => {
     const agentsTargetDir = path.join(process.env.HOME!, ".agents", "skills");
     const packPath = path.join(agentsTargetDir, "opendevbrowser-best-practices");
@@ -497,6 +571,52 @@ describe("bundled skill lifecycle sync", () => {
     ).toContain('"managesAllCanonicalPacks": true');
   }, 60_000);
 
+  it("refreshes stale markerless canonical packs in a partially managed global Agents target", () => {
+    const agentsTarget = getGlobalSkillTargets()
+      .find((target) => target.agents.includes("agents"));
+    if (!agentsTarget) {
+      throw new Error("Missing global Agents target for partial managed stale-pack test.");
+    }
+
+    const managedPackNames = ["opendevbrowser-design-agent", "opendevbrowser-motion-design"];
+    const stalePackNames = bundledSkillNames.filter((packName) => !managedPackNames.includes(packName));
+    fs.mkdirSync(agentsTarget.dir, { recursive: true });
+
+    for (const packName of managedPackNames) {
+      fs.cpSync(path.join(getBundledSkillsDir(), packName), path.join(agentsTarget.dir, packName), {
+        recursive: true
+      });
+      writeManagedSentinel(agentsTarget.dir, packName);
+    }
+
+    for (const packName of stalePackNames) {
+      const packPath = path.join(agentsTarget.dir, packName);
+      fs.mkdirSync(packPath, { recursive: true });
+      fs.writeFileSync(path.join(packPath, "SKILL.md"), `# stale ${packName}\n`, "utf8");
+      fs.writeFileSync(path.join(packPath, "STALE.txt"), "stale markerless pack\n", "utf8");
+    }
+    writeManagedMarker(agentsTarget.dir, managedPackNames, false);
+
+    const result = syncBundledSkills("global");
+    const marker = JSON.parse(fs.readFileSync(path.join(agentsTarget.dir, managedSkillsMarkerName), "utf8"));
+
+    expect(result.success).toBe(true);
+    expect(result.preserved).not.toEqual(expect.arrayContaining(stalePackNames));
+    expect(marker).toEqual(expect.objectContaining({
+      managesAllCanonicalPacks: true,
+      managedPacks: expect.arrayContaining(bundledSkillNames)
+    }));
+    for (const packName of bundledSkillNames) {
+      const packPath = path.join(agentsTarget.dir, packName);
+      expect(fs.existsSync(path.join(packPath, managedSkillSentinelName))).toBe(true);
+      expect(fs.readFileSync(path.join(packPath, "SKILL.md"), "utf8")).toBe(fs.readFileSync(
+        path.join(getBundledSkillsDir(), packName, "SKILL.md"),
+        "utf8"
+      ));
+      expect(fs.existsSync(path.join(packPath, "STALE.txt"))).toBe(false);
+    }
+  }, 60_000);
+
   it("refreshes sentinel-discovered canonical packs during subset-marker sync repair", () => {
     const installResult = syncBundledSkills("global");
     expect(installResult.success).toBe(true);
@@ -751,11 +871,12 @@ describe("bundled skill lifecycle sync", () => {
     expect(findInstalledConfigs()).toEqual({ global: true, local: false });
   }, 60_000);
 
-  it("publishes canonical shared targets for ClaudeCode, AmpCLI, and Agents homes", () => {
+  it("publishes canonical shared targets for ClaudeCode, AmpCLI, and Codex Agents homes", () => {
     const globalTargets = getGlobalSkillTargets();
     const claudeDir = path.join(process.env.CLAUDECODE_HOME!, "skills");
     const ampDir = path.join(process.env.AMP_CLI_HOME!, "skills");
     const agentsDir = path.join(process.env.HOME!, ".agents", "skills");
+    const legacyCodexDir = path.join(process.env.CODEX_HOME!, "skills");
 
     const claudeTarget = globalTargets.find((target) => path.resolve(target.dir) === path.resolve(claudeDir));
     expect(claudeTarget).toBeDefined();
@@ -767,12 +888,14 @@ describe("bundled skill lifecycle sync", () => {
 
     const agentsTarget = globalTargets.find((target) => path.resolve(target.dir) === path.resolve(agentsDir));
     expect(agentsTarget).toBeDefined();
-    expect(agentsTarget?.agents).toEqual(["agents"]);
+    expect(agentsTarget?.agents).toEqual(["codex", "agents"]);
+    expect(globalTargets.some((target) => path.resolve(target.dir) === path.resolve(legacyCodexDir)))
+      .toBe(false);
 
     const localAgentsTarget = getLocalSkillTargets()
       .find((target) => target.agents.includes("agents"));
     expect(localAgentsTarget).toBeDefined();
-    expect(localAgentsTarget?.agents).toEqual(["agents"]);
+    expect(localAgentsTarget?.agents).toEqual(["codex", "agents"]);
   });
 
   it("removes managed canonical packs during uninstall cleanup", () => {

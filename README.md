@@ -109,7 +109,7 @@ CLI/plugin installs still reconcile daemon auto-start on supported platforms aft
 
 Package postinstall auto-start targets the packaged CLI entrypoint `dist/cli/index.js`, not the lifecycle shim at `scripts/postinstall-sync-skills.mjs`. `src/cli/daemon-autostart.ts` owns platform safety and refuses to persist `_npx`, `/tmp`, `/private/tmp`, or onboarding workspace paths before writing LaunchAgent or Task Scheduler state. Package postinstall warnings are non-fatal; repair with `opendevbrowser daemon install`, inspect with `opendevbrowser daemon status`, or remove with `opendevbrowser daemon uninstall`.
 
-Bundled skills sync to **OpenCode, Codex, ClaudeCode, AmpCLI, and Agents** targets during install. `npx opendevbrowser` manages global or project-local targets according to the selected skills mode, and package installation (`npm install -g`, local tarball install, or equivalent) best-effort syncs the canonical bundled packs into the managed global targets during package `postinstall`. If a global update appears stale, compare `command -v opendevbrowser`, `which -a opendevbrowser`, and `npm prefix -g`; install with the prefix that owns the active binary. See [docs/CLI.md](docs/CLI.md) for exact target paths.
+Bundled skills sync to **OpenCode, Codex, ClaudeCode, AmpCLI, and Agents** targets during install. Codex-managed OpenDevBrowser packs use the shared Agents root so Codex does not see duplicate `opendevbrowser-*` entries from both `$CODEX_HOME/skills` and `~/.agents/skills`. `npx opendevbrowser` manages global or project-local targets according to the selected skills mode, and package installation (`npm install -g`, local tarball install, or equivalent) best-effort syncs the canonical bundled packs into the managed global targets during package `postinstall`. If a global update appears stale, compare `command -v opendevbrowser`, `which -a opendevbrowser`, and `npm prefix -g`; install with the prefix that owns the active binary. See [docs/CLI.md](docs/CLI.md) for exact target paths.
 
 ### CLI Without OpenCode
 
@@ -328,9 +328,9 @@ Start every surface check from generated help when you need the current public l
 
 ### Skill Packs and Install Targets
 - **Canonical bundled packs** - Install and update the 10 OpenDevBrowser-specific `opendevbrowser-*` skill packs for browser automation, design, motion, continuity, login, forms, extraction, research, shopping, and product presentation.
-- **Multi-agent target sync** - Managed installs sync skills across OpenCode, Codex, ClaudeCode, AmpCLI, and Agents global or project-local targets.
+- **Multi-agent target sync** - Managed installs sync skills across OpenCode, Codex via the shared Agents root, ClaudeCode, AmpCLI, and Agents global or project-local targets.
 - **Local onboarding helpers** - `opendevbrowser_prompting_guide`, `opendevbrowser_skill_list`, and `opendevbrowser_skill_load` work without a browser session, relay, or daemon bootstrap.
-- **Ownership-safe lifecycle** - Update refreshes CLI-managed canonical packs, adopts matching markerless canonical copies, and uninstall removes only marker- or sentinel-managed canonical packs, leaving unrelated user skill directories untouched.
+- **Ownership-safe lifecycle** - Update refreshes CLI-managed canonical packs, adopts matching markerless canonical copies only inside managed OpenDevBrowser targets, preserves drifted markerless directories outside managed repair, and uninstall removes only marker- or sentinel-managed canonical packs, leaving unrelated user skill directories untouched.
 
 ### Security, Challenge, and Reliability Guardrails
 - **Secure defaults** - Remote CDP is blocked by default, raw CDP is disabled by default, unsafe export is disabled by default, and relay tokens use timing-safe comparison.
@@ -468,7 +468,7 @@ Desktop observation currently ships as a public read-only macOS surface. Availab
 
 ## Bundled Skills
 
-OpenDevBrowser includes **10 OpenDevBrowser-specific skill packs**. Install, update, and uninstall own the managed skill lifecycle across OpenCode, Codex, ClaudeCode, AmpCLI, and Agents targets:
+OpenDevBrowser includes **10 OpenDevBrowser-specific skill packs**. Install, update, and uninstall own the managed skill lifecycle across OpenCode, Codex via the shared Agents root, ClaudeCode, AmpCLI, and Agents targets:
 
 | Skill | Purpose |
 |-------|---------|
@@ -485,8 +485,9 @@ OpenDevBrowser includes **10 OpenDevBrowser-specific skill packs**. Install, upd
 
 Installer note:
 - `--skills-global` and `--skills-local` sync the 10 canonical `opendevbrowser-*` packs into managed global or project-local agent directories.
+- Codex managed installs write OpenDevBrowser packs through `~/.agents/skills` or `./.agents/skills`; managed legacy `.codex/skills` duplicates are removed during sync, while markerless user-owned `.codex` directories are preserved.
 - Managed installs write a target-level ownership marker, so later update and uninstall only act on CLI-managed skill targets or older config installs that already contain canonical packs.
-- Reinstall and update refresh drifted managed copies, adopt matching markerless canonical copies by writing ownership sentinels, and preserve drifted markerless directories for user review.
+- Reinstall and update refresh drifted managed copies, adopt matching markerless canonical copies when a managed OpenDevBrowser target is being repaired or promoted to all canonical packs, and preserve drifted markerless directories outside managed repair for user review.
 - Uninstall removes marker- or sentinel-managed canonical packs and leaves unrelated directories untouched.
 
 Skills are discovered from (priority order):
