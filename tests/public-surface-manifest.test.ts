@@ -148,7 +148,7 @@ describe("public surface manifest", () => {
     expect(notes).toContain("manifest-backed first-party pin-media bytes");
     expect(notes).toContain("discovery-diagnostics.json records accepted and rejected URLs, blocker diagnostics, and recovery context");
     expect(notes).toContain("login/challenge and search-shell diagnostics are recovery paths, not product-ready evidence");
-    expect(notes).toContain("Screenshot failure after pin-media success is a non-blocking caveat when pin-media authority is complete");
+    expect(notes).toContain("unavailable supplemental viewport screenshot evidence is recorded as skipped and satisfied by pin media");
     expect(notes).toContain("pin-media-index.json remains Pinterest authority");
     expect(notes).toContain("media-analysis.json remains advisory");
     expect(notes).toContain("motion-evidence.json remains browser replay authority");
