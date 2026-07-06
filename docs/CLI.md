@@ -62,7 +62,7 @@ export CLAUDECODE_HOME="$ISOLATED_ROOT/claudecode-home"
 export AMP_CLI_HOME="$ISOLATED_ROOT/ampcli-home"
 cd "$WORKDIR"
 npm init -y
-npm install <public-repo-root>/opendevbrowser-0.0.39.tgz
+npm install <public-repo-root>/opendevbrowser-0.0.40.tgz
 npx --no-install opendevbrowser --help
 npx --no-install opendevbrowser help
 ```
@@ -1919,7 +1919,7 @@ npm run test -- tests/providers-performance-gate.test.ts
 
 These commands are release guards, not the live release-proof lane. Use the direct-run harness commands above for release evidence.
 
-Release gate source of truth: `docs/RELEASE_RUNBOOK.md` and `docs/RELEASE_0.0.39_EVIDENCE.md`.
+Release gate source of truth: `docs/RELEASE_RUNBOOK.md` and `docs/RELEASE_0.0.40_EVIDENCE.md`.
 Benchmark fixture manifest: `docs/benchmarks/provider-fixtures.md`.
 
 ---
