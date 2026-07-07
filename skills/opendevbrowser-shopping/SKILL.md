@@ -48,18 +48,19 @@ Reliable defaults:
 Successful shopping bundles preserve separate user and audit surfaces:
 
 - `deals.md`: primary deterministic buying brief with a Buying Readiness Gate, Recommendation, Best Candidate Offers, Market Baseline, Warnings and Constraints, Excluded or Constrained Offers, and Evidence Appendix.
+- `buyingReadiness` in JSON output: first-class buying authority gate with `status` values `pass`, `partial`, or `fail`.
 - `offers.json`: raw structured offer evidence.
 - `comparison.csv`: tabular provider, title, price, shipping, deal score, availability, and URL comparison, with appended currency and total-status audit fields.
 - `meta.json`: workflow diagnostics, selected providers, alerts, failures, and filter diagnostics.
 - `deals-context.json`: agent handoff context with `query`, report-derived `highlights`, raw `offers`, and `meta`.
 
-`compact` and `context` modes summarize the report guidance. `json` mode still returns raw offers plus meta.
+`compact` and `context` modes summarize the report guidance. `json` mode returns raw offers, `buyingReadiness`, and meta.
 
 ## Decision Model
 
 Use the runtime buying brief as the source of truth for purchase guidance:
 
-1. Read the Buying Readiness Gate.
+1. Read the Buying Readiness Gate in `deals.md` or `buyingReadiness.status` in JSON output. Transport success and emitted offers are not enough for purchase guidance.
 - `pass`: evidence supports bounded buying guidance for the current shortlist.
 - `partial`: offers are usable as a constrained shortlist, but evidence gaps limit confidence.
 - `fail`: no confident purchase recommendation is allowed.

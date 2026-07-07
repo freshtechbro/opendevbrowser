@@ -31,6 +31,7 @@ import type {
   ProviderError,
   ProviderFailureEntry,
   ProviderReasonCode,
+  ProviderRunOptions,
   ProviderSource
 } from "../src/providers/types";
 import type { NextStepGuidance } from "../src/guidance/types";
@@ -899,15 +900,15 @@ describe("inspiredesign workflow", () => {
         records: [
           normalizeRecord("web/default", "web", {
             url: input.url,
-            title: "Visual reference",
-            content: "Full-bleed hero with cinematic product staging and refined CTA."
+            title: "Visual harvest product staging reference",
+            content: "Visual harvest product staging full-bleed hero with refined CTA."
           })
         ]
       })
     });
 
     const output = await runInspiredesignWorkflow(runtime, {
-      brief: "Design a visual harvest landing page",
+      brief: "Design a visual harvest product staging landing page",
       urls: ["https://example.com/visual"],
       outputDir,
       mode: "path",
@@ -920,7 +921,7 @@ describe("inspiredesign workflow", () => {
         stagedTempPath = options.visualEvidencePath;
         writeFileSync(options.visualEvidencePath, Buffer.from("png bytes"));
         return {
-          ...makeCapture("Visual reference full-bleed hero cinematic product staging refined CTA"),
+          ...makeCapture("Visual harvest product staging reference full-bleed hero refined CTA"),
           visual: {
             status: "captured",
             kind: "viewport",
@@ -946,6 +947,13 @@ describe("inspiredesign workflow", () => {
       screenshots: Array<{ path: string; sha256: string; bytes: number }>;
     };
 
+    expect(output).toEqual(expect.objectContaining({
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "snapshot_ready",
+      snapshotReadyReferenceCount: 1,
+      authoritativeReferenceCount: 1
+    }));
     expect(meta.selection).toEqual(expect.objectContaining({
       visual_evidence: "required",
       capture_mode: "deep"
@@ -969,7 +977,7 @@ describe("inspiredesign workflow", () => {
     }));
     expect(readFileSync(join(artifactPath, "visual-evidence/b710f7bd0da7/viewport.png"))).toEqual(Buffer.from("png bytes"));
     expect(rankedReferencesJson).toContain("\"rank\": 1");
-    expect(metaPrompt).toContain("Rank 1: Visual reference");
+    expect(metaPrompt).toContain("Rank 1: Visual harvest product staging reference");
     for (const jsonText of [visualEvidenceJson, screenshotIndexJson, rankedReferencesJson]) {
       expect(jsonText).not.toContain(stagedTempPath);
       expect(jsonText).not.toContain("base64");
@@ -1824,7 +1832,7 @@ describe("inspiredesign workflow", () => {
 	expect(JSON.stringify(evidence.mediaAnalysis?.savedMediaMotionNotice)).not.toContain("product_ready");
 	});
 
-	it("keeps trusted Pinterest pin media authoritative when page chrome reports login state", async () => {
+	it("keeps login-state Pinterest pin media diagnostic while preserving captured bytes", async () => {
 	const runtime = toRuntime({
 		fetch: async (input: { url: string }) => makeAggregate({
 		records: [
@@ -1892,9 +1900,11 @@ describe("inspiredesign workflow", () => {
 	const meta = output.meta as InspiredesignWorkflowMeta;
 
 	expect(output).toEqual(expect.objectContaining({
-		productSuccess: true,
-		artifactAuthority: "product_ready",
-		evidenceAuthority: "pin_media_ready"
+		productSuccess: false,
+		artifactAuthority: "diagnostic_only",
+		evidenceAuthority: "diagnostic_only",
+		pinMediaReadyReferenceCount: 0,
+		authoritativeReferenceCount: 0
 	}));
 	expect(pinMediaEvidence.pinMediaEvidence[0]?.pinMedia).toEqual(expect.objectContaining({
 		authority: "design_evidence",
@@ -4872,6 +4882,187 @@ describe("inspiredesign workflow", () => {
       cookiePolicy: "required"
     }));
     expect(output.suggestedNextAction).toEqual(meta.nextStepGuidance?.primaryAction.summary);
+  });
+
+  it.each([
+    { label: "canonical provider", providers: ["social/pinterest"], urls: [] },
+    { label: "bare provider alias", providers: ["pinterest"], urls: [] },
+    { label: "Pinterest URL recovery", providers: undefined, urls: ["https://www.pinterest.com/pin/61572719900827789/"] }
+  ])("applies Pinterest extension auth defaults for $label when extension readiness is current", async ({ providers, urls }) => {
+    const pinUrl = "https://www.pinterest.com/pin/61572719900827789/";
+    const fetch = vi.fn(async (input: { url: string }) => {
+      if (input.url.includes("/search/pins/")) {
+        return makeAggregate({
+          records: [makePinterestSearchShellDiscoveryRecord(input.url, pinUrl)]
+        });
+      }
+      return makeAggregate({
+        records: [makePinterestDiscoveredImagePinRecord(input.url)]
+      });
+    });
+
+    await runInspiredesignWorkflow(toRuntime({ fetch }), {
+      brief: "Design a cinematic photography studio landing page",
+      harvest: true,
+      query: urls.length === 0 ? "premium photography studio landing page" : undefined,
+      providers,
+      urls,
+      extensionAuthReady: true,
+      visualEvidence: "off",
+      mode: "json"
+    });
+
+    const runtimePolicy = (fetch.mock.calls[0]?.[1] as ProviderRunOptions | undefined)?.runtimePolicy;
+    expect(runtimePolicy).toEqual(expect.objectContaining({
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicyOverride: "required",
+      challengeAutomationMode: "browser_with_helper"
+    }));
+  });
+
+  it.each([
+    { label: "managed browser mode", input: { browserMode: "managed" as const }, expected: { browserMode: "managed" } },
+    { label: "profile", input: { profile: "pinterest-design" }, expected: { profile: "pinterest-design", browserMode: "managed" } },
+    { label: "cookies off", input: { useCookies: false }, expected: { useCookies: false } },
+    { label: "cookie policy off", input: { cookiePolicyOverride: "off" as const }, expected: { cookiePolicyOverride: "off" } },
+    { label: "challenge automation off", input: { challengeAutomationMode: "off" as const }, expected: { challengeAutomationMode: "off" } }
+  ])("preserves explicit Pinterest auth setting for $label", async ({ input, expected }) => {
+    const pinUrl = "https://www.pinterest.com/pin/61572719900827789/";
+    const fetch = vi.fn(async (request: { url: string }) => {
+      if (request.url.includes("/search/pins/")) {
+        return makeAggregate({
+          records: [makePinterestSearchShellDiscoveryRecord(request.url, pinUrl)]
+        });
+      }
+      return makeAggregate({
+        records: [makePinterestDiscoveredImagePinRecord(request.url)]
+      });
+    });
+
+    await runInspiredesignWorkflow(toRuntime({ fetch }), {
+      brief: "Design a cinematic photography studio landing page",
+      harvest: true,
+      query: "premium photography studio landing page",
+      providers: ["social/pinterest"],
+      extensionAuthReady: true,
+      visualEvidence: "off",
+      mode: "json",
+      ...input
+    });
+
+    const runtimePolicy = (fetch.mock.calls[0]?.[1] as ProviderRunOptions | undefined)?.runtimePolicy;
+    expect(runtimePolicy).toEqual(expect.objectContaining(expected));
+    expect(runtimePolicy).not.toEqual(expect.objectContaining({
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicyOverride: "required",
+      challengeAutomationMode: "browser_with_helper"
+    }));
+  });
+
+  it("applies Pinterest extension cookie defaults when browser_with_helper is already set", async () => {
+    const pinUrl = "https://www.pinterest.com/pin/61572719900827789/";
+    const fetch = vi.fn(async (input: { url: string }) => {
+      if (input.url.includes("/search/pins/")) {
+        return makeAggregate({
+          records: [makePinterestSearchShellDiscoveryRecord(input.url, pinUrl)]
+        });
+      }
+      return makeAggregate({
+        records: [makePinterestDiscoveredImagePinRecord(input.url)]
+      });
+    });
+
+    await runInspiredesignWorkflow(toRuntime({ fetch }), {
+      brief: "Design a cinematic photography studio landing page",
+      harvest: true,
+      query: "premium photography studio landing page",
+      providers: ["pinterest"],
+      extensionAuthReady: true,
+      challengeAutomationMode: "browser_with_helper",
+      visualEvidence: "off",
+      mode: "json"
+    });
+
+    const runtimePolicy = (fetch.mock.calls[0]?.[1] as ProviderRunOptions | undefined)?.runtimePolicy;
+    expect(runtimePolicy).toEqual(expect.objectContaining({
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicyOverride: "required",
+      challengeAutomationMode: "browser_with_helper"
+    }));
+  });
+
+  it("does not apply Pinterest extension auth defaults for non-Pinterest harvest", async () => {
+    const search = vi.fn(async () => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: "https://example.com/reference",
+          title: "Editorial reference",
+          content: "Premium editorial layout reference."
+        })
+      ]
+    }));
+    const fetch = vi.fn(async (input: { url: string }) => makeAggregate({
+      records: [
+        normalizeRecord("web/default", "web", {
+          url: input.url,
+          title: "Fetched editorial reference",
+          content: "Fetched premium editorial layout reference."
+        })
+      ]
+    }));
+
+    await runInspiredesignWorkflow(toRuntime({ fetch, search }), {
+      brief: "Design a premium editorial docs landing page",
+      harvest: true,
+      query: "premium editorial docs references",
+      providers: ["web/default"],
+      extensionAuthReady: true,
+      maxReferences: 1,
+      visualEvidence: "off",
+      mode: "json"
+    });
+
+    const runtimePolicy = (search.mock.calls[0]?.[1] as ProviderRunOptions | undefined)?.runtimePolicy;
+    expect(runtimePolicy).not.toEqual(expect.objectContaining({
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicyOverride: "required",
+      challengeAutomationMode: "browser_with_helper"
+    }));
+  });
+
+  it("does not apply Pinterest extension auth defaults when readiness is missing", async () => {
+    const pinUrl = "https://www.pinterest.com/pin/61572719900827789/";
+    const fetch = vi.fn(async (input: { url: string }) => {
+      if (input.url.includes("/search/pins/")) {
+        return makeAggregate({
+          records: [makePinterestSearchShellDiscoveryRecord(input.url, pinUrl)]
+        });
+      }
+      return makeAggregate({
+        records: [makePinterestDiscoveredImagePinRecord(input.url)]
+      });
+    });
+
+    await runInspiredesignWorkflow(toRuntime({ fetch }), {
+      brief: "Design a cinematic photography studio landing page",
+      harvest: true,
+      query: "premium photography studio landing page",
+      providers: ["social/pinterest"],
+      visualEvidence: "off",
+      mode: "json"
+    });
+
+    const runtimePolicy = (fetch.mock.calls[0]?.[1] as ProviderRunOptions | undefined)?.runtimePolicy;
+    expect(runtimePolicy).not.toEqual(expect.objectContaining({
+      browserMode: "extension",
+      useCookies: true,
+      cookiePolicyOverride: "required",
+      challengeAutomationMode: "browser_with_helper"
+    }));
   });
 
   it("allows managed-profile Pinterest discovery when the workflow owns profile provenance", async () => {

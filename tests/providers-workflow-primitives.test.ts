@@ -551,37 +551,43 @@ describe("workflow primitives", () => {
       expect(rendered.files.find((file) => file.path === "meta.json")?.content).toBe(meta);
       const context = rendered.files.find((file) => file.path === "deals-context.json")?.content as {
         query: string;
+        buyingReadiness: { status: string };
         highlights: string[];
         offers: ShoppingOffer[];
         meta: Record<string, unknown>;
       };
-      expect(Object.keys(context).sort()).toEqual(["highlights", "meta", "offers", "query"]);
+      expect(Object.keys(context).sort()).toEqual(["buyingReadiness", "highlights", "meta", "offers", "query"]);
+      expect(context.buyingReadiness.status).toBe("pass");
       expect(context.highlights[0]).toContain("Buying readiness:");
       expect(context.highlights[1]).toContain("Recommendation:");
       expect(context.highlights).toContain("Key constraint: No major report constraint surfaced.");
       expect(context.offers).toBe(offers);
 
       if (mode === "compact") {
-        expect(Object.keys(rendered.response).sort()).toEqual(["meta", "mode", "summary"]);
+        expect(Object.keys(rendered.response).sort()).toEqual(["buyingReadiness", "meta", "mode", "summary"]);
+        expect((rendered.response.buyingReadiness as { status: string }).status).toBe("pass");
         expect(String(rendered.response.summary)).toContain("Buying readiness:");
         expect(String(rendered.response.summary)).toContain("Recommendation:");
         expect(String(rendered.response.summary)).not.toContain("deal=");
         expect(String(rendered.response.summary)).not.toMatch(/^1\. /m);
       }
       if (mode === "json") {
-        expect(Object.keys(rendered.response).sort()).toEqual(["meta", "mode", "offers"]);
+        expect(Object.keys(rendered.response).sort()).toEqual(["buyingReadiness", "meta", "mode", "offers"]);
         expect(rendered.response).toMatchObject({ mode: "json", offers, meta });
+        expect((rendered.response.buyingReadiness as { status: string }).status).toBe("pass");
       }
       if (mode === "md") {
-        expect(Object.keys(rendered.response).sort()).toEqual(["markdown", "meta", "mode"]);
+        expect(Object.keys(rendered.response).sort()).toEqual(["buyingReadiness", "markdown", "meta", "mode"]);
         expect(rendered.response).toMatchObject({ mode: "md", markdown: dealsMarkdown, meta });
+        expect((rendered.response.buyingReadiness as { status: string }).status).toBe("pass");
       }
       if (mode === "context") {
-        expect(Object.keys(rendered.response).sort()).toEqual(["context", "meta", "mode"]);
+        expect(Object.keys(rendered.response).sort()).toEqual(["buyingReadiness", "context", "meta", "mode"]);
         expect(rendered.response).toMatchObject({ mode: "context", context, meta });
+        expect((rendered.response.buyingReadiness as { status: string }).status).toBe("pass");
       }
       if (mode === "path") {
-        expect(rendered.response).toEqual({ mode: "path", meta });
+        expect(rendered.response).toEqual({ mode: "path", buyingReadiness: expect.objectContaining({ status: "pass" }), meta });
       }
     }
   });

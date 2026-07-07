@@ -310,6 +310,7 @@ export interface InspiredesignRunInput {
   cookiePolicyOverride?: ProviderCookiePolicy;
   profile?: string;
   cookieSource?: ProviderCookieSourceConfig;
+  extensionAuthReady?: boolean;
 }
 
 export interface ProductVideoRunInput {
@@ -653,19 +654,47 @@ const buildTranscriptAlertsFromFailures = (
   return alerts;
 };
 
+const filterWorkflowAlertsByProviderIds = (
+  alerts: Array<Record<string, JsonValue>>,
+  providerIds?: string[]
+): Array<Record<string, JsonValue>> => {
+  if (providerIds === undefined) return alerts;
+  const selectedProviderIds = new Set(providerIds);
+  return alerts.filter((alert) => {
+    const provider = alert.provider;
+    return typeof provider !== "string" || selectedProviderIds.has(provider);
+  });
+};
+
 const buildWorkflowAlerts = (
   runtime: ReferenceRetrievalPort,
   failures: ProviderFailureEntry[],
   providerIds?: string[]
 ): Array<Record<string, JsonValue>> => {
   const snapshots = getRuntimeAntiBotSnapshots(runtime, providerIds);
-  if (snapshots.length === 0) {
-    return buildAlerts();
+  const alerts = snapshots.length === 0
+    ? buildAlerts()
+    : [
+      ...buildRuntimePressureAlerts(snapshots),
+      ...buildTranscriptAlertsFromFailures(failures)
+    ];
+  return filterWorkflowAlertsByProviderIds(alerts, providerIds);
+};
+
+const collectWorkflowProviderIds = (results: ProviderAggregateResult[]): string[] => {
+  const providerIds = new Set<string>();
+  for (const result of results) {
+    for (const providerId of result.providerOrder) {
+      providerIds.add(providerId);
+    }
+    for (const record of result.records) {
+      providerIds.add(record.provider);
+    }
+    for (const failure of result.failures) {
+      providerIds.add(failure.provider);
+    }
   }
-  return [
-    ...buildRuntimePressureAlerts(snapshots),
-    ...buildTranscriptAlertsFromFailures(failures)
-  ];
+  return [...providerIds];
 };
 
 const getDegradedProviders = (): Set<string> => {
@@ -1770,6 +1799,65 @@ const INSPIREDESIGN_COOKIE_POLICIES = new Set<ProviderCookiePolicy>(["off", "aut
 const WORKFLOW_BROWSER_MODES = new Set<WorkflowBrowserMode>(["auto", "extension", "managed"]);
 const INSPIREDESIGN_DEFAULT_MAX_REFERENCES = 5;
 const INSPIREDESIGN_MAX_REFERENCES_LIMIT = 10;
+const INSPIREDESIGN_PINTEREST_PROVIDER_ID = "social/pinterest";
+const INSPIREDESIGN_PINTEREST_PROVIDER_ALIAS = "pinterest";
+const PINTEREST_EXTENSION_CHALLENGE_MODE: ChallengeAutomationMode = "browser_with_helper";
+
+const isPinterestWorkflowReferenceUrl = (value: string): boolean => {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return hostname === "pinterest.com" || hostname.endsWith(".pinterest.com");
+  } catch {
+    return false;
+  }
+};
+
+const isPinterestWorkflowProvider = (providerId: string): boolean => (
+  providerId === INSPIREDESIGN_PINTEREST_PROVIDER_ID
+  || providerId === INSPIREDESIGN_PINTEREST_PROVIDER_ALIAS
+  || resolveSiteRecipeForProvider(providerId)?.id === INSPIREDESIGN_PINTEREST_PROVIDER_ID
+);
+
+const hasExplicitPinterestAuthSetting = (input: InspiredesignRunInput): boolean => (
+  input.browserMode !== undefined
+  || input.profile !== undefined
+  || input.useCookies !== undefined
+  || input.cookiePolicyOverride !== undefined
+  || (
+    input.challengeAutomationMode !== undefined
+    && input.challengeAutomationMode !== PINTEREST_EXTENSION_CHALLENGE_MODE
+  )
+);
+
+const shouldApplyPinterestExtensionAuthDefaults = (
+  input: InspiredesignRunInput,
+  providers: readonly string[],
+  urls: readonly string[]
+): boolean => (
+  input.harvest === true
+  && input.extensionAuthReady === true
+  && (
+    providers.some(isPinterestWorkflowProvider)
+    || urls.some(isPinterestWorkflowReferenceUrl)
+  )
+  && !hasExplicitPinterestAuthSetting(input)
+);
+
+const pinterestExtensionAuthDefaults = (
+  input: InspiredesignRunInput,
+  providers: readonly string[],
+  urls: readonly string[]
+): Partial<InspiredesignRunInput> => {
+  if (!shouldApplyPinterestExtensionAuthDefaults(input, providers, urls)) {
+    return {};
+  }
+  return {
+    browserMode: "extension",
+    useCookies: true,
+    cookiePolicyOverride: "required",
+    challengeAutomationMode: PINTEREST_EXTENSION_CHALLENGE_MODE
+  };
+};
 
 const isJsonRecord = (value: JsonValue | undefined): value is Record<string, JsonValue> => (
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -2076,6 +2164,7 @@ const normalizeInspiredesignInput = (input: InspiredesignRunInput): Inspiredesig
   const query = typeof input.query === "string" && input.query.trim().length > 0 ? input.query.trim() : undefined;
   const providers = normalizeInspiredesignProviders(input.providers);
   const hasExplicitMaxReferences = typeof input.maxReferences !== "undefined";
+  const extensionAuthDefaults = pinterestExtensionAuthDefaults(input, providers, urls);
   if (query && input.harvest !== true) {
     throw new Error("Inspiredesign workflow query is only supported when harvest is true.");
   }
@@ -2109,6 +2198,7 @@ const normalizeInspiredesignInput = (input: InspiredesignRunInput): Inspiredesig
   const briefExpansion = expandInspiredesignBrief(brief, preferredFormatId);
   return {
     ...input,
+    ...extensionAuthDefaults,
     brief,
     briefExpansion,
     ...(query ? { query } : {}),
@@ -3784,7 +3874,11 @@ const finalizeInspiredesignReferenceVisual = async (
     if (buffer.byteLength === 0) {
       throw new Error("Visual evidence screenshot file was empty.");
     }
-    const persisted = persistInspiredesignVisualEvidence(visual, {
+    const visualForPersistence: InspiredesignVisualEvidenceRuntimeMetadata = !isPinterestWorkflowReferenceUrl(reference.url)
+      && runtimeVisual.sourceUrl === undefined
+      ? { ...runtimeVisual, sourceUrl: reference.url }
+      : runtimeVisual;
+    const persisted = persistInspiredesignVisualEvidence(visualForPersistence, {
       artifactPath,
       sha256: hashVisualEvidenceBuffer(buffer),
       bytes: buffer.byteLength
@@ -5410,21 +5504,6 @@ const finalizeInspiredesignResponseGuidance = (args: {
   };
 };
 
-const isPinterestWorkflowReferenceUrl = (value: string): boolean => {
-  try {
-    const hostname = new URL(value).hostname.toLowerCase();
-    return hostname === "pinterest.com" || hostname.endsWith(".pinterest.com");
-  } catch {
-    return false;
-  }
-};
-
-const isPinterestWorkflowProvider = (providerId: string): boolean => (
-  providerId === "social/pinterest"
-  || providerId === "pinterest"
-  || resolveSiteRecipeForProvider(providerId)?.id === "social/pinterest"
-);
-
 const isPinterestEvidenceRequiredForWorkflow = (
   workflowInput: InspiredesignResolvedInput,
   discovery: InspiredesignDiscoveryDiagnostics
@@ -6624,6 +6703,12 @@ export const runResearchWorkflow = async (
   });
 
   const excludedProviderSet = new Set(plan.compiled.autoExcludedProviders);
+  const allResearchResults = [
+    ...execution.searchRuns.map((run) => run.result),
+    ...execution.followUpRuns.map((run) => run.result)
+  ];
+  const selectedResearchProviderIds = collectWorkflowProviderIds(allResearchResults)
+    .filter((providerId) => !excludedProviderSet.has(providerId));
   const rawRecords = [
     ...execution.searchRuns.flatMap((run) => run.result.records),
     ...execution.followUpRuns.flatMap((run) => run.result.records)
@@ -6714,7 +6799,7 @@ export const runResearchWorkflow = async (
 	    failures: mergedFailures,
 	    rejected_candidates: rejectedCandidates,
 	    rejectedCandidates,
-	    alerts: buildWorkflowAlerts(runtime, mergedFailures)
+	    alerts: buildWorkflowAlerts(runtime, mergedFailures, selectedResearchProviderIds)
   } as Record<string, unknown>, primaryConstraintFailures);
   const handoff = buildResearchSuccessHandoff({
     topic: plan.compiled.topic,
@@ -7916,7 +8001,13 @@ export const runProductVideoWorkflow = async (
     includeAllImages: workflowInput.include_all_images,
     includeCopy: workflowInput.include_copy,
     presentationReadiness: presentation.presentationReadiness,
-    productVideoReadiness: presentation.productVideoReadiness
+    productVideoReadiness: presentation.productVideoReadiness,
+    ...(primaryIssue
+      ? {
+        primaryConstraintSummary: primaryIssue.summary,
+        ...(primaryIssue.guidance ? { providerGuidance: primaryIssue.guidance } : {})
+      }
+      : {})
   });
   const meta = withFollowthroughMeta({
     ...(workflowInput.browserMode

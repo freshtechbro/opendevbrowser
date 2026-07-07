@@ -421,6 +421,25 @@ describe("workflow CLI commands", () => {
     );
   });
 
+  it("surfaces shopping buying readiness in completion messages", async () => {
+    callDaemon.mockResolvedValue({
+      buyingReadiness: {
+        status: "partial",
+        summary: "Enough offers for a constrained shortlist, but not a confident buying recommendation."
+      },
+      meta: {}
+    });
+
+    const result = await runShoppingCommand(makeArgs("shopping", [
+      "run",
+      "--query=wireless mouse"
+    ]));
+
+    expect(result.message).toBe(
+      "Shopping workflow completed. Buying readiness: partial."
+    );
+  });
+
   it("prefers explicit camelCase workflow summaries in completion messages", async () => {
     callDaemon.mockResolvedValue({
       meta: {
@@ -1145,6 +1164,36 @@ describe("workflow CLI commands", () => {
         suggestedNextAction: "Inspect the artifact path and rerun with tighter inputs if you need stronger evidence."
       }
     });
+  });
+
+  it.each([
+    {
+      name: "top-level",
+      data: {
+        presentationReadiness: { status: "partial" },
+        productVideoReadiness: { status: "fail" }
+      },
+      expected: "Product video asset workflow completed. Presentation readiness: partial. Product-video readiness: fail."
+    },
+    {
+      name: "meta",
+      data: {
+        meta: {
+          presentationReadiness: { status: "pass" },
+          productVideoReadiness: { status: "partial" }
+        }
+      },
+      expected: "Product video asset workflow completed. Presentation readiness: pass. Product-video readiness: partial."
+    }
+  ])("adds product-video readiness suffixes from $name workflow data", async ({ data, expected }) => {
+    callDaemon.mockResolvedValue(data);
+
+    const result = await runProductVideoCommand(makeArgs("product-video", [
+      "run",
+      "--product-name=Sample Product"
+    ]));
+
+    expect(result.message).toBe(expected);
   });
 
   it("parses and dispatches product-video run payload", async () => {

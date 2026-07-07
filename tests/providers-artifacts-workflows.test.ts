@@ -941,6 +941,7 @@ describe("artifact and workflow runtime", () => {
     const output = await runResearchWorkflow(runtime, {
       topic: "coffee shop website design inspiration",
       days: 30,
+      sources: ["web", "community", "social"],
       sourceSelection: "auto",
       mode: "json",
       outputDir: root

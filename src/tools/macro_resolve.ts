@@ -4,7 +4,10 @@ import {
   type MacroResolution
 } from "../macros/execute";
 import { executeMacroWithRuntime } from "../macros/execute-runtime";
-import { buildMacroResolveSuccessHandoff } from "../providers/workflow-handoff";
+import {
+  buildMacroResolveSuccessHandoff,
+  macroExecutionNeedsCompletionReview
+} from "../providers/workflow-handoff";
 import { CHALLENGE_AUTOMATION_MODES } from "../challenges/types";
 import type { ToolDeps } from "./deps";
 import { failure, ok, serializeError } from "./response";
@@ -159,7 +162,8 @@ export function createMacroResolveTool(deps: ToolDeps): ToolDefinition {
           expression: args.expression,
           defaultProvider: args.defaultProvider,
           execute: true,
-          blocked: Boolean(execution.meta.blocker)
+          blocked: Boolean(execution.meta.blocker),
+          executionNeedsCompletionReview: macroExecutionNeedsCompletionReview(execution)
         });
 
         return ok({

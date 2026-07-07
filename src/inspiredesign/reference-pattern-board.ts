@@ -716,7 +716,7 @@ const hasPinMediaReadyPinterestEvidence = (
 	pinMediaIndex?: readonly InspiredesignPinterestPinMediaIndexEntry[]
 ): boolean => {
 	if (!isPinterestProductCandidateReferenceUrl(reference.url)) return false;
-	if (diagnosticReasons.some((reason) => reason !== "login_or_challenge_state")) return false;
+	if (diagnosticReasons.length > 0) return false;
 	if (reference.captureStatus !== "captured") return false;
 	const pinMedia = reference.capture?.pinMedia;
 	if (pinMedia?.status !== "captured") return false;

@@ -1064,9 +1064,11 @@ describe("workflow branch coverage", () => {
 
     expect(workflowTestUtils.getDegradedProviders()).toContain("social/youtube");
 
+    const calledSources: ProviderSource[] = [];
     const autoRuntime = toRuntime({
       search: async (_input, options) => {
         const source = (options?.source ?? "web") as ProviderSource;
+        calledSources.push(source);
         const provider = source === "social" ? "social/youtube" : `${source}/default`;
         return makeAggregate({
           sourceSelection: source,
@@ -1088,10 +1090,13 @@ describe("workflow branch coverage", () => {
     });
 
     const providers = (output.records as Array<{ provider: string }>).map((record) => record.provider);
+    const selection = (output.meta as {
+      selection: { excluded_providers?: string[]; resolved_sources: string[] };
+    }).selection;
+    expect(calledSources).toEqual(["web", "community"]);
+    expect(selection.resolved_sources).toEqual(["web", "community"]);
     expect(providers).not.toContain("social/youtube");
-    expect((output.meta as {
-      selection: { excluded_providers?: string[] };
-    }).selection.excluded_providers).toContain("social/youtube");
+    expect(selection.excluded_providers).toBeUndefined();
   });
 
   it("excludes degraded shopping providers from default provider routing but allows explicit override", async () => {
@@ -2873,7 +2878,7 @@ describe("workflow branch coverage", () => {
     const meta = output.meta as { selection: { source_selection: string; resolved_sources: string[] } };
     expect(meta.selection).toEqual({
       source_selection: "auto",
-      resolved_sources: ["web", "community", "social"]
+      resolved_sources: ["web", "community"]
     });
   });
 
@@ -5089,6 +5094,7 @@ describe("workflow branch coverage", () => {
 
     const output = await runResearchWorkflow(runtime, {
       topic: "coffee shop website design inspiration",
+      sources: ["web", "community", "social"],
       sourceSelection: "auto",
       days: 30,
       mode: "json"

@@ -54,7 +54,7 @@ Expected output pack always includes:
 - `copy.md` and `features.md`, which are production input only when readiness allows it
 - `raw/source-record.json` for auditability and raw evidence preservation
 
-Workflow JSON output also exposes `product.presentationReadiness`, `product.productVideoReadiness`, `meta.presentationReadiness`, and `meta.productVideoReadiness` so callers can gate automation without opening files first.
+Workflow JSON output also exposes `product.presentationReadiness`, `product.productVideoReadiness`, `meta.presentationReadiness`, and `meta.productVideoReadiness` so callers can gate automation without opening files first. CLI completion text includes both readiness statuses when available, so transport success is not production authority.
 
 When visual capture succeeds, the pack may also include:
 - `images/` for product stills
@@ -78,7 +78,7 @@ Helper behavior:
 1. Pick product URL or product name.
 2. Before daemon-backed `product-video run` workflows, run `opendevbrowser status --daemon --output-format json` and continue only when `data.fingerprintCurrent === true`.
 3. Run collection workflow and confirm output pack path.
-4. Review `presentation-readiness.json`, `manifest.readiness.presentation`, `manifest.readiness.productVideo`, `product.json.presentationReadiness`, `product.json.productVideoReadiness`, and returned `meta.presentationReadiness` when available.
+4. Review `presentation-readiness.json`, `manifest.readiness.presentation`, `manifest.readiness.productVideo`, `product.json.presentationReadiness`, `product.json.productVideoReadiness`, returned `meta.presentationReadiness`, and returned `meta.productVideoReadiness` when available.
 5. Confirm raw evidence remains preserved in `raw/source-record.json`, but do not treat raw marketplace text as verified production copy.
 6. Run `./skills/opendevbrowser-product-presentation-asset/scripts/render-video-brief.sh` only after readiness review.
 	Canonical helper path: `./skills/opendevbrowser-product-presentation-asset/scripts/render-video-brief.sh`.

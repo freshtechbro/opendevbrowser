@@ -863,15 +863,17 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
   ],
   research: [
     WORKFLOW_OUTPUT_PREFERENCE_NOTE,
-    "Load opendevbrowser-research first, use explicit source families such as --sources web,community, and inspect artifacts before final claims."
+    "Load opendevbrowser-research first, use explicit source families such as --sources web,community, and inspect artifacts before final claims. sourceSelection=auto is public-first and resolves to web,community; use all or explicit social sources only when social evidence is intentional."
   ],
   shopping: [
     WORKFLOW_OUTPUT_PREFERENCE_NOTE,
-    "Treat --region as advisory unless the workflow output reports region_authoritative=true. The region_unenforced alert is emitted only for selected provider diagnostics that did not enforce the requested region; enforced-region diagnostics do not create that warning."
+    "Treat --region as advisory unless the workflow output reports region_authoritative=true. The region_unenforced alert is emitted only for selected provider diagnostics that did not enforce the requested region; enforced-region diagnostics do not create that warning.",
+    "Treat buyingReadiness.status as the buying authority gate. Transport success or emitted offers are not enough for purchase guidance when buyingReadiness is partial or fail."
   ],
   "product-video": [
     WORKFLOW_OUTPUT_PREFERENCE_NOTE,
-    "Confirm whether the returned pack is visual-ready or metadata-first before briefing production."
+    "Confirm whether the returned pack is visual-ready or metadata-first before briefing production.",
+    "Use presentationReadiness and productVideoReadiness as production authority gates. Completion text and JSON expose those statuses separately from transport success."
   ],
   artifacts: [
     "When --output-dir is omitted, cleanup targets the current working directory's .opendevbrowser root.",
@@ -882,6 +884,7 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
     WORKFLOW_OUTPUT_PREFERENCE_NOTE,
     "Pinterest harvest uses manifest-backed pin-media evidence as the required product-readiness authority for canonical pin-media harvests; screenshot evidence and screencast evidence remain useful capture or motion lanes but are not substitutes. DOM/clone/deep capture is disabled for Pinterest harvest, and remote media URLs are not product-ready unless persisted first-party bytes appear in pin-media-index.json.",
     "Pinterest broad-query harvests become product-ready only when query discovery accepts canonical /pin/{id}/ references and the workflow captures manifest-backed first-party pin-media bytes for those pins. discovery-diagnostics.json records accepted and rejected URLs, blocker diagnostics, and recovery context; login/challenge and search-shell diagnostics are recovery paths, not product-ready evidence.",
+    "Default Pinterest harvest applies extension auth defaults only when extensionAuthReady is current and the caller has not set incompatible auth transport or cookie settings. Explicit browserMode, profile, useCookies, cookiePolicyOverride, or challengeAutomationMode values other than browser_with_helper opt out; explicit challengeAutomationMode=browser_with_helper is compatible and may merge with the implicit extension, cookies, and required cookie policy defaults.",
     "inspiredesign run forces captureMode=deep for any explicit --url so the workflow can collect DOM/layout diagnostics. inspiredesign harvest forces deep capture for non-Pinterest explicit --url references, while Pinterest-only discovery and compatible Pinterest URL recovery force captureMode=off even when --capture-mode deep is requested.",
     "Repeat --url for multiple references. There is no --urls alias.",
     "inspiredesign harvest keeps the daemon method as inspiredesign.run, requires --query or at least one --url, defaults to path output, requires visual evidence, and caps discovery at 5 references unless --max-references changes it.",
@@ -897,13 +900,13 @@ const CLI_COMMAND_NOTES: Partial<Record<PublicSurfaceCliCommandName, readonly st
     "Canonical Pinterest pin-media harvest opens the exact canonical pin in the active managed or extension workflow session before extracting persisted first-party bytes. Extension /ops remains the best live-tab reuse path, and explicit CDP profiles remain a browser/session primitive lane until provider workflows expose an explicit-CDP transport selector.",
     "Harvest JSON is metadata-only: screenshots, motion evidence, and pin-media evidence are artifact files referenced by relative paths, hashes, viewport metadata, frame counts, dimensions, provenance, and warnings.",
     "ranked-references.json includes rejectedReferences for captured-but-rejected diagnostics such as interface_chrome_shell without promoting those captures into design references.",
-    "Pinterest product readiness is pin-media-first: canonical pin URLs become product-ready only when first-party pin-media evidence is captured, persisted, manifest-backed, and free of blocking warnings. Snapshot and screencast artifacts can inform diagnostics or motion, but they do not satisfy required Pinterest pin-media readiness. The exact login_or_challenge_state and strict byte-backed interface_chrome_shell diagnostics are non-blocking only for trusted first-party manifest-backed pin-media bytes; broader login, challenge, captcha, search-shell, promoted, ad, blank, tiny, or chrome-only blockers still demote readiness unless query-discovered canonical pins also produce complete pin-media authority. When pin-media authority is complete, unavailable supplemental viewport screenshot evidence is recorded as skipped and satisfied by pin media, not as product-readiness failure; pin-media-index.json remains Pinterest authority, media-analysis.json remains advisory, and motion-evidence.json remains browser replay authority.",
+    "Pinterest product readiness is pin-media-first: canonical pin URLs become product-ready only when first-party pin-media evidence is captured, persisted, manifest-backed, and free of blocking warnings. Snapshot and screencast artifacts can inform diagnostics or motion, but they do not satisfy required Pinterest pin-media readiness. login_or_challenge_state, broader login, challenge, captcha, search-shell, promoted, ad, blank, tiny, or chrome-only blockers demote readiness; strict byte-backed interface_chrome_shell diagnostics remain non-blocking only for trusted first-party manifest-backed pin-media bytes. When pin-media authority is complete, unavailable supplemental viewport screenshot evidence is recorded as skipped and satisfied by pin media, not as product-readiness failure; pin-media-index.json remains Pinterest authority, media-analysis.json remains advisory, and motion-evidence.json remains browser replay authority.",
     "Load opendevbrowser-motion-design before turning harvest motion posture into implementation timing, scroll choreography, reduced-motion behavior, or temporal proof."
   ],
   "macro-resolve": [
     "Use --browser-mode and --challenge-automation-mode only with --execute.",
     "Use --browser-mode extension --use-cookies --cookie-policy required when provider macros must reuse relay-backed browser state and verify that provider cookies are observable.",
-    "When --execute is enabled, inspect execution.meta.blocker before trusting a blocked result as complete."
+    "When --execute is enabled, inspect execution.meta.blocker before trusting a blocked result as complete. Also inspect execution.meta.ok, execution.meta.partial, and execution.failures because transport success can still be unblocked but incomplete."
   ],
   canvas: [
     "Use --params-file for strict request envelopes such as canvas.plan.set or governance handoff payloads.",
@@ -1060,14 +1063,17 @@ const TOOL_SURFACE_NOTES: Partial<Record<string, readonly string[]>> = {
     "Tool-only helper. Use it to load opendevbrowser-best-practices or design-agent guidance directly into the current agent context."
   ],
   opendevbrowser_research_run: [
-    WORKFLOW_OUTPUT_PREFERENCE_NOTE
+    WORKFLOW_OUTPUT_PREFERENCE_NOTE,
+    "sourceSelection=auto is public-first and resolves to web,community; explicit all or social selection is required for social providers."
   ],
   opendevbrowser_shopping_run: [
     WORKFLOW_OUTPUT_PREFERENCE_NOTE,
-    "Treat --region as advisory unless the workflow output reports region_authoritative=true. The region_unenforced alert is emitted only for selected provider diagnostics that did not enforce the requested region; enforced-region diagnostics do not create that warning."
+    "Treat --region as advisory unless the workflow output reports region_authoritative=true. The region_unenforced alert is emitted only for selected provider diagnostics that did not enforce the requested region; enforced-region diagnostics do not create that warning.",
+    "Use buyingReadiness.status as the buying authority gate, separate from command transport success."
   ],
   opendevbrowser_product_video_run: [
-    WORKFLOW_OUTPUT_PREFERENCE_NOTE
+    WORKFLOW_OUTPUT_PREFERENCE_NOTE,
+    "Use presentationReadiness and productVideoReadiness as production authority gates, separate from command transport success."
   ],
   opendevbrowser_status_capabilities: [
     MEDIA_ANALYSIS_STATUS_NOTE

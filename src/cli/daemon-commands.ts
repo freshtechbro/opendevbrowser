@@ -25,7 +25,10 @@ import {
   runShoppingWorkflow
 } from "../providers/workflows";
 import { resolveWorkflowArtifactRoot } from "../providers/workflow-output-root";
-import { buildMacroResolveSuccessHandoff } from "../providers/workflow-handoff";
+import {
+  buildMacroResolveSuccessHandoff,
+  macroExecutionNeedsCompletionReview
+} from "../providers/workflow-handoff";
 import { isChallengeAutomationMode, type ChallengeAutomationMode } from "../challenges";
 import {
   type MacroExecutionPayload,
@@ -917,6 +920,7 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
       );
     case "inspiredesign.run": {
       const inspiredesignTimeoutMs = optionalNumber(params.timeoutMs, "timeoutMs");
+      const relayStatus = core.relay.status();
       return runInspiredesignWorkflow(
         createDaemonWorkflowRuntime(core),
         {
@@ -937,7 +941,8 @@ export async function handleDaemonCommand(core: OpenDevBrowserCore, request: Dae
           profile: optionalString(params.profile),
           useCookies: optionalBoolean(params.useCookies),
           challengeAutomationMode: optionalChallengeAutomationMode(params.challengeAutomationMode),
-          cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride)
+          cookiePolicyOverride: optionalCookiePolicy(params.cookiePolicyOverride),
+          extensionAuthReady: relayStatus.extensionHandshakeComplete
         },
         {
           mediaAnalysisConfig: core.config.inspiredesign?.mediaAnalysis ?? {},
@@ -2337,7 +2342,8 @@ async function resolveMacroExpression(
     expression: options.expression,
     defaultProvider: options.defaultProvider,
     execute: true,
-    blocked: Boolean(execution.meta.blocker)
+    blocked: Boolean(execution.meta.blocker),
+    executionNeedsCompletionReview: macroExecutionNeedsCompletionReview(execution)
   });
   return {
     runtime: resolvedRuntime,

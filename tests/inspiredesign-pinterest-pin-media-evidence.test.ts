@@ -480,6 +480,20 @@ describe("Pinterest pin media evidence helpers", () => {
 	}));
 	});
 
+	it("keeps login warning capture advisory but blocks product authority", () => {
+	const persisted = persistValidEvidence({ warnings: ["login_or_challenge_state"] });
+	const indexEntry = buildInspiredesignPinterestPinMediaIndexEntry(persisted);
+
+	expect(persisted.authority).toBe("design_evidence");
+	expect(persisted.rejectionReasons).not.toContain("blocking_warning");
+	expect(indexEntry).toEqual(expect.objectContaining({
+		authority: "design_evidence",
+		warnings: ["login_or_challenge_state"]
+	}));
+	expect(hasPinterestPinMediaAuthorityBlockingWarning(persisted)).toBe(true);
+	expect(hasPinterestPinMediaAuthorityBlockingWarning(indexEntry ?? {})).toBe(true);
+	});
+
 	it("does not delete caller-supplied blocking warning reasons for interface chrome media", () => {
 	const persisted = persistValidEvidence({
 		warnings: ["interface_chrome_shell"],

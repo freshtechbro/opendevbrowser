@@ -291,6 +291,31 @@ describe("workflow handoff builders", () => {
     );
   });
 
+  it("adds provider recovery guidance to product-video handoff steps", () => {
+    const handoff = buildProductVideoSuccessHandoff({
+      productUrl: "https://www.bestbuy.com/site/logitech-mx-master-3s/6502574.p?skuId=6502574",
+      primaryConstraintSummary: "Bestbuy is blocked by the Best Buy country-selection interstitial.",
+      providerGuidance: {
+        reason: "Bestbuy needs the Best Buy country-selection interstitial cleared before retrying.",
+        recommendedNextCommands: [
+          "Choose the shopping country or region in the preserved browser session.",
+          "Rerun the same provider or workflow after the Best Buy PDP or search results are visible."
+        ]
+      }
+    });
+
+    expect(handoff.suggestedSteps[1]?.reason).toContain(
+      "Bestbuy is blocked by the Best Buy country-selection interstitial."
+    );
+    expect(handoff.suggestedSteps[1]?.reason).toContain(
+      "Bestbuy needs the Best Buy country-selection interstitial cleared before retrying."
+    );
+    expect(handoff.suggestedSteps[1]?.reason).toContain(
+      "Choose the shopping country or region in the preserved browser session."
+    );
+    expect(handoff.suggestedSteps[2]?.command).toBe(`${PRODUCT_VIDEO_BRIEF_HELPER_PATH} <pack>/manifest.json`);
+  });
+
   it("gates product-video handoff wording from readiness", () => {
     const partial = buildProductVideoSuccessHandoff({
       productUrl: "https://shop.example/item-1",
