@@ -175,6 +175,32 @@ describe("shopping-report", () => {
     expect(fail.gate.status).toBe("fail");
   });
 
+  it("describes readiness criteria against the current evidence set without relaxing gate status", () => {
+    const pass = buildShoppingBriefing(briefingInput());
+    const partial = buildShoppingBriefing(briefingInput({
+      offers: [offer({ id: "unknown", availability: "unknown" })]
+    }));
+    const fail = buildShoppingBriefing(briefingInput({ offers: [] }));
+    const thresholds = partial.gate.criteria.map((entry) => entry.threshold).join("\n");
+    const availability = partial.gate.criteria.find((entry) => entry.label === "Availability");
+    const titleQuality = partial.gate.criteria.find((entry) => entry.label === "Query and title quality");
+
+    expect(pass.gate.status).toBe("pass");
+    expect(partial.gate.status).toBe("partial");
+    expect(fail.gate.status).toBe("fail");
+    expect(thresholds).toContain("No unknown or out-of-stock offer in the current evidence set");
+    expect(thresholds).toContain("No weak relevance or suspicious title in the current evidence set");
+    expect(thresholds).not.toContain("confident set");
+    expect(availability).toMatchObject({
+      observed: "1 unknown, 0 out of stock",
+      passed: false
+    });
+    expect(titleQuality).toMatchObject({
+      observed: "0 weak relevance, 0 suspicious title",
+      passed: true
+    });
+  });
+
   it("renders missing buyer limitations without downgrading otherwise healthy pass guidance", () => {
     const briefing = buildShoppingBriefing(briefingInput());
     const markdown = renderShoppingBriefingMarkdown(briefing);

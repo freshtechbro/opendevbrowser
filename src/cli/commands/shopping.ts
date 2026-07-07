@@ -38,6 +38,25 @@ const deriveShoppingTransportTimeoutMs = (timeoutMs: number): number => {
   );
 };
 
+const asRecord = (value: unknown): Record<string, unknown> | null => (
+  value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+);
+
+const readBuyingReadinessStatus = (data: unknown): string | null => {
+  const record = asRecord(data);
+  const readiness = asRecord(record?.buyingReadiness) ?? asRecord(asRecord(record?.meta)?.buyingReadiness);
+  const status = readiness?.status;
+  return typeof status === "string" && status.trim().length > 0 ? status.trim() : null;
+};
+
+const buildShoppingCompletionMessage = (data: unknown): string => {
+  const baseMessage = buildWorkflowCompletionMessage("Shopping workflow", data);
+  const status = readBuyingReadinessStatus(data);
+  return status ? `${baseMessage} Buying readiness: ${status}.` : baseMessage;
+};
+
 const requireValue = (rawArgs: string[], index: number, flag: string): string => {
   const value = rawArgs[index + 1];
   if (!value) {
@@ -286,7 +305,7 @@ export async function runShoppingCommand(args: ParsedArgs) {
 
   return {
     success: true,
-    message: buildWorkflowCompletionMessage("Shopping workflow", data),
+    message: buildShoppingCompletionMessage(data),
     data
   };
 }
@@ -294,5 +313,6 @@ export async function runShoppingCommand(args: ParsedArgs) {
 export const __test__ = {
   parseShoppingRunArgs,
   parseProviders,
-  deriveShoppingTransportTimeoutMs
+  deriveShoppingTransportTimeoutMs,
+  buildShoppingCompletionMessage
 };

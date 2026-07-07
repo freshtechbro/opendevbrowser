@@ -778,7 +778,7 @@ const hasAuthorityBlockingWarning = (
   requireDesignAuthority: boolean
 ): boolean => readWarningEntries(evidence.warnings).some((warning) => {
   const marker = normalizeWarningMarker(warning);
-  if (NON_BLOCKING_PIN_MEDIA_WARNING_MARKERS.has(marker)) return false;
+  if (!requireDesignAuthority && NON_BLOCKING_PIN_MEDIA_WARNING_MARKERS.has(marker)) return false;
   if (marker === "interface_chrome_shell" && isStrictCanonicalByteBackedPinMediaEvidence(evidence, requireDesignAuthority)) return false;
   return BLOCKING_WARNING_MARKERS.some((blockingMarker) => marker.includes(blockingMarker));
 });

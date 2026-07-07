@@ -41,6 +41,33 @@ const parseBoolean = (value: string, flag: string): boolean => {
 
 const COOKIE_POLICY_VALUES = new Set(["off", "auto", "required"]);
 const BROWSER_MODE_VALUES = new Set(["auto", "extension", "managed"]);
+
+type ProductVideoReadinessKey = "presentationReadiness" | "productVideoReadiness";
+
+const asRecord = (value: unknown): Record<string, unknown> | null => (
+  value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+);
+
+const readReadinessStatus = (data: unknown, key: ProductVideoReadinessKey): string | null => {
+  const record = asRecord(data);
+  const topLevel = asRecord(record?.[key]);
+  const metaLevel = asRecord(asRecord(record?.meta)?.[key]);
+  const status = topLevel?.status ?? metaLevel?.status;
+  return typeof status === "string" && status.trim().length > 0 ? status.trim() : null;
+};
+
+const buildProductVideoCompletionMessage = (data: unknown): string => {
+  const message = buildWorkflowCompletionMessage("Product video asset workflow", data);
+  const suffixes = [
+    ["Presentation readiness", readReadinessStatus(data, "presentationReadiness")],
+    ["Product-video readiness", readReadinessStatus(data, "productVideoReadiness")]
+  ]
+    .flatMap(([label, status]) => (status ? [`${label}: ${status}.`] : []));
+  return suffixes.length > 0 ? `${message} ${suffixes.join(" ")}` : message;
+};
+
 const parseProductVideoArgs = (rawArgs: string[]): ProductVideoCommandArgs => {
   const parsed: ProductVideoCommandArgs = {};
 
@@ -242,7 +269,7 @@ export async function runProductVideoCommand(args: ParsedArgs) {
 
   return {
     success: true,
-    message: buildWorkflowCompletionMessage("Product video asset workflow", data),
+    message: buildProductVideoCompletionMessage(data),
     data
   };
 }

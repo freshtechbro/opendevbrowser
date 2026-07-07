@@ -440,8 +440,7 @@ describe("workflow tools", () => {
     }));
     expect((research.meta as { selection: { resolved_sources: string[] } }).selection.resolved_sources).toEqual([
       "web",
-      "community",
-      "social"
+      "community"
     ]);
 
     const shopping = parse(await shoppingTool.execute({

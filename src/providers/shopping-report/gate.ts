@@ -133,7 +133,7 @@ const gateCriteria = (facts: ShoppingGateFacts): ShoppingBriefingCriterion[] => 
   criterion({
     label: "Availability",
     observed: `${facts.unknownAvailability} unknown, ${facts.outOfStock} out of stock`,
-    threshold: "No unknown or out-of-stock offer in the confident set",
+    threshold: "No unknown or out-of-stock offer in the current evidence set",
     passed: facts.unknownAvailability === 0 && facts.outOfStock === 0
   }),
   criterion({
@@ -148,7 +148,7 @@ const gateCriteria = (facts: ShoppingGateFacts): ShoppingBriefingCriterion[] => 
   criterion({
     label: "Query and title quality",
     observed: `${facts.weakRelevance} weak relevance, ${facts.suspiciousTitles} suspicious title`,
-    threshold: "No weak relevance or suspicious title in the confident set",
+    threshold: "No weak relevance or suspicious title in the current evidence set",
     passed: facts.weakRelevance === 0 && facts.suspiciousTitles === 0
   }),
   criterion({

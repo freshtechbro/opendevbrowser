@@ -1020,6 +1020,44 @@ describe("inspiredesign product readiness helpers", () => {
       snapshotReadyReferenceCount: 1
     }));
 
+    const genericTrailingSlashReference = {
+      id: "generic-trailing-slash",
+      url: "https://www.apple.com/airpods-pro",
+      evidenceAuthority: "snapshot_ready"
+    };
+    expect(deriveInspiredesignProductReadinessFields({
+      nextStepGuidance: { readiness: "ready", doNotProceedIf: [] },
+      rankedReferences: [
+        genericTrailingSlashReference,
+        {
+          id: "pin-ref",
+          url: "https://www.pinterest.com/pin/1234567890/",
+          evidenceAuthority: "pin_media_ready",
+          capturedVia: ["pin_media_ready"]
+        }
+      ],
+      screenshotIndex: [{
+        referenceId: "generic-trailing-slash",
+        url: "https://www.apple.com/airpods-pro",
+        sourceUrl: "https://www.apple.com/airpods-pro/",
+        path: "visual-evidence/generic-trailing-slash/viewport.png",
+        sha256: "e".repeat(64),
+        bytes: 55_720,
+        warnings: []
+      }],
+      pinMediaIndex: [makePinterestPinMediaIndexEntry()],
+      qualitySummary: { missingScreenshotCount: 0 }
+    })).toEqual(expect.objectContaining({
+      productSuccess: true,
+      artifactAuthority: "product_ready",
+      evidenceAuthority: "pin_media_ready",
+      rankedReferenceCount: 2,
+      authoritativeReferenceCount: 2,
+      snapshotReadyReferenceCount: 1,
+      motionReadyReferenceCount: 0,
+      pinMediaReadyReferenceCount: 1
+    }));
+
     expect(deriveInspiredesignProductReadinessFields({
       nextStepGuidance: { readiness: "ready", doNotProceedIf: [] },
       rankedReferences: [{
@@ -1151,7 +1189,7 @@ describe("inspiredesign product readiness helpers", () => {
 	})).toBe(true);
 	expect(isInspiredesignAuthoritativeRankedReference(rankedReference, {
 		pinMedia: [makePinterestPinMediaIndexEntry({ warnings: ["login_or_challenge_state"] })]
-	})).toBe(true);
+	})).toBe(false);
 	expect(isInspiredesignAuthoritativeRankedReference(rankedReference, {
 		pinMedia: [makePinterestPinMediaIndexEntry({
 			warnings: ["interface_chrome_shell"],
@@ -1195,6 +1233,21 @@ describe("inspiredesign product readiness helpers", () => {
 		snapshotReadyReferenceCount: 0,
 		motionReadyReferenceCount: 0,
 		pinMediaReadyReferenceCount: 1
+	}));
+
+	expect(deriveInspiredesignProductReadinessFields({
+		nextStepGuidance: { readiness: "ready", doNotProceedIf: [] },
+		pinterestEvidenceRequired: true,
+		rankedReferences: [rankedReference],
+		pinMediaIndex: [makePinterestPinMediaIndexEntry({ warnings: ["login_or_challenge_state"] })],
+		qualitySummary: { missingScreenshotCount: 0 }
+	})).toEqual(expect.objectContaining({
+		productSuccess: false,
+		artifactAuthority: "diagnostic_only",
+		evidenceAuthority: "diagnostic_only",
+		rankedReferenceCount: 1,
+		authoritativeReferenceCount: 0,
+		pinMediaReadyReferenceCount: 0
 	}));
 
 	expect(deriveInspiredesignProductReadinessFields({

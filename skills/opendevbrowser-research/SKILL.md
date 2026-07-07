@@ -41,7 +41,7 @@ Load this skill before research tasks. Use it to plan source families, gather pr
 - Before daemon-backed `research run` workflows, run `opendevbrowser status --daemon --output-format json` and continue only when `data.fingerprintCurrent === true`.
 - Define timebox first (`--days` or `--from/--to`).
 - Choose explicit source families before invoking the CLI primitive: `web`, `community`, `social`, `shopping`, or a deliberate combination such as `web,community`.
-- Treat `auto` as a source-family selector, not a reliability guarantee.
+- Treat `auto` as public-first `web,community`, not a reliability guarantee. Use `all`, `social`, or explicit social sources only when social evidence is intentional.
 - Persist artifacts and return reproducible paths.
 - Mark unsupported claims as tentative or exclude them from the final answer.
 - Honor bounded retries and backoff windows under 429 pressure.
@@ -130,7 +130,7 @@ opendevbrowser research run --topic "<topic>" --sources web,shopping --mode md
 
 ## Notes
 
-- `auto` and `all` are selector values in the current source-family contract, not promises of reliable coverage.
+- `auto` is the public-first selector for `web,community`; `all` is an explicit broader selector, not a reliability guarantee.
 - Use `--source-selection shopping` or explicit `--sources ...shopping...` to include shopping only when commercial intent is explicit.
 - Use `--mode path` with `scripts/write-artifacts.sh` when you need replayable handoff bundles.
 - For browser-backed release proof and mode sweeps, follow the canonical direct-run evidence policy in `../opendevbrowser-best-practices/SKILL.md`.

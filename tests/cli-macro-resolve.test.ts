@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParsedArgs } from "../src/cli/args";
 import { runMacroResolve } from "../src/cli/commands/macro-resolve";
+import { buildMacroResolveSuccessHandoff } from "../src/providers/workflow-handoff";
 
 const { callDaemon } = vi.hoisted(() => ({
   callDaemon: vi.fn()
@@ -129,6 +130,87 @@ describe("macro-resolve CLI command", () => {
     const executionMeta = (result.data as { execution?: { meta?: Record<string, unknown> } }).execution?.meta;
     expect(executionMeta?.ok).toBe(true);
     expect(executionMeta).not.toHaveProperty("blocker");
+  });
+
+  it.each([
+    {
+      name: "meta.ok is false",
+      meta: { ok: false, partial: false },
+      failures: []
+    },
+    {
+      name: "meta.partial is true",
+      meta: { ok: true, partial: true },
+      failures: []
+    },
+    {
+      name: "failures are present",
+      meta: { ok: true, partial: false },
+      failures: [{ provider: "web/default", source: "web", error: { code: "rate_limited", message: "provider skipped" } }]
+    }
+  ])("reports unblocked incomplete execution when $name", async ({ meta, failures }) => {
+    callDaemon.mockResolvedValue({
+      runtime: "macros",
+      resolution: { action: { source: "web", operation: "search", input: { query: "openai" } } },
+      execution: {
+        records: [{ id: "partial-record" }],
+        failures,
+        metrics: { attempted: 2, succeeded: 1, failed: failures.length, retries: 0, latencyMs: 1 },
+        meta: {
+          ok: meta.ok,
+          partial: meta.partial,
+          sourceSelection: "web",
+          providerOrder: ["web/default"],
+          trace: { requestId: "req-partial" }
+        }
+      }
+    });
+
+    const result = await runMacroResolve(makeArgs([
+      "--expression=@web.search(\"openai\")",
+      "--execute"
+    ]));
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("transport succeeded");
+    expect(result.message).toContain("execution is incomplete and unblocked");
+    expect(result.message).toContain("execution.meta.ok");
+    expect(result.message).toContain("execution.meta.partial");
+    expect(result.message).toContain("execution.failures");
+    expect(result.data).toMatchObject({
+      execution: {
+        failures,
+        meta: {
+          ok: meta.ok,
+          partial: meta.partial
+        }
+      }
+    });
+    const executionMeta = (result.data as { execution?: { meta?: Record<string, unknown> } }).execution?.meta;
+    expect(executionMeta).not.toHaveProperty("blocker");
+  });
+
+  it("builds unblocked incomplete handoff without replacing blocker authority", () => {
+    const incompleteHandoff = buildMacroResolveSuccessHandoff({
+      expression: "@web.search(\"openai\")",
+      execute: true,
+      blocked: false,
+      executionNeedsCompletionReview: true
+    });
+    expect(incompleteHandoff.followthroughSummary).toContain("transport succeeded");
+    expect(incompleteHandoff.followthroughSummary).toContain("execution is incomplete and unblocked");
+    expect(incompleteHandoff.followthroughSummary).toContain("execution.meta.ok");
+    expect(incompleteHandoff.followthroughSummary).toContain("execution.meta.partial");
+    expect(incompleteHandoff.followthroughSummary).toContain("execution.failures");
+
+    const blockedHandoff = buildMacroResolveSuccessHandoff({
+      expression: "@web.search(\"openai\")",
+      execute: true,
+      blocked: true,
+      executionNeedsCompletionReview: true
+    });
+    expect(blockedHandoff.followthroughSummary).toContain("execution.meta.blocker");
+    expect(blockedHandoff.followthroughSummary).not.toContain("incomplete and unblocked");
   });
 
   it("uses the shared runnable next-step reader when explicit macro next action is absent", async () => {

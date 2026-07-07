@@ -231,6 +231,11 @@ const buildShoppingRerunCommand = (input: ShoppingHandoffInput): string => {
 
 type ProductVideoReadinessHandoffInput = Pick<ProductVideoReadinessSummary, "status" | "warnings" | "reasonCodes">;
 
+type ProductVideoProviderGuidanceInput = {
+  reason: string;
+  recommendedNextCommands: readonly string[];
+};
+
 type ProductVideoHandoffInput = {
   productUrl?: string;
   productName?: string;
@@ -241,6 +246,8 @@ type ProductVideoHandoffInput = {
   includeCopy?: boolean;
   presentationReadiness?: ProductVideoReadinessHandoffInput;
   productVideoReadiness?: ProductVideoReadinessHandoffInput;
+  primaryConstraintSummary?: string;
+  providerGuidance?: ProductVideoProviderGuidanceInput;
 };
 
 const buildProductVideoRerunCommand = (input: ProductVideoHandoffInput = {}): string => {
@@ -263,6 +270,15 @@ type MacroResolveHandoffInput = {
   defaultProvider?: string;
   execute: boolean;
   blocked: boolean;
+  executionNeedsCompletionReview?: boolean;
+};
+
+type MacroExecutionCompletenessInput = {
+  failures: readonly ProviderFailureEntry[];
+  meta: {
+    ok: boolean;
+    partial: boolean;
+  };
 };
 
 type InspiredesignSuccessHandoffInput = {
@@ -489,13 +505,24 @@ const productVideoBriefHelperReason = (input: ProductVideoHandoffInput): string 
   return "Run the product-presentation-asset brief helper on manifest.json to generate readiness-aware production brief files.";
 };
 
+const productVideoProviderRecoveryReason = (input: ProductVideoHandoffInput): string | null => {
+  const guidance = input.providerGuidance;
+  if (!guidance) return null;
+  const commands = guidance.recommendedNextCommands.filter((command) => command.trim().length > 0);
+  const commandSuffix = commands.length > 0 ? ` Next steps: ${commands.join(" ")}` : "";
+  const summaryPrefix = input.primaryConstraintSummary ? `${input.primaryConstraintSummary} ` : "";
+  return `${summaryPrefix}${guidance.reason}${commandSuffix}`;
+};
+
 export const buildProductVideoSuccessHandoff = (input: ProductVideoHandoffInput = {}): WorkflowSuccessHandoff => {
   const rerunCommand = buildProductVideoRerunCommand(input);
+  const providerRecoveryReason = productVideoProviderRecoveryReason(input);
   return createSuccessHandoff(
     productVideoHandoffFollowthroughSummary(input),
     productVideoHandoffNextAction(input),
     [
       { reason: productVideoReadinessInspectionReason(input) },
+      ...(providerRecoveryReason ? [{ reason: providerRecoveryReason }] : []),
       {
         reason: productVideoBriefHelperReason(input),
         command: PRODUCT_VIDEO_BRIEF_HELPER_COMMAND
@@ -535,6 +562,17 @@ export const buildMacroResolveSuccessHandoff = (input: MacroResolveHandoffInput)
       ]
     );
   }
+  if (input.executionNeedsCompletionReview) {
+    return createSuccessHandoff(
+      "Macro transport succeeded, but execution is incomplete and unblocked. Inspect execution.meta.ok, execution.meta.partial, and execution.failures before treating results as complete.",
+      `Inspect execution.meta.ok, execution.meta.partial, and execution.failures, then rerun ${executeCommand} after resolving unblocked provider failures.`,
+      [
+        { reason: "Inspect execution.meta.ok, execution.meta.partial, and execution.failures to separate transport success from execution completeness." },
+        { reason: "Rerun the macro after resolving provider failures or accepting partial results intentionally.", command: executeCommand },
+        { reason: "Use browser-scoped challenge automation only if the incomplete execution points to a live browser recovery path.", command: browserRetryCommand }
+      ]
+    );
+  }
   return createSuccessHandoff(
     "Review execution.records and trace metadata before widening the macro or changing providers.",
     `Inspect execution.records and execution.meta, then rerun ${previewCommand} if you need a narrower plan.`,
@@ -545,6 +583,10 @@ export const buildMacroResolveSuccessHandoff = (input: MacroResolveHandoffInput)
     ]
   );
 };
+
+export const macroExecutionNeedsCompletionReview = (execution: MacroExecutionCompletenessInput): boolean => (
+  !execution.meta.ok || execution.meta.partial || execution.failures.length > 0
+);
 
 export const buildInspiredesignSuccessHandoff = (
   input: InspiredesignSuccessHandoffInput

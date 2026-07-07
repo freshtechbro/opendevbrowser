@@ -1703,6 +1703,69 @@ describe("inspiredesign capture helper", () => {
     }
   });
 
+  it("launches explicit managed canonical Pinterest pin media capture with the requested persistent profile", async () => {
+    const manager = {
+      launch: vi.fn().mockResolvedValue({ sessionId: "session-managed-profile-pin-media" }),
+      setSessionChallengeAutomationMode: vi.fn(),
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoad: vi.fn().mockResolvedValue(undefined),
+      snapshot: vi.fn().mockResolvedValue({
+        url: "https://www.pinterest.com/pin/27654985208435505/",
+        title: "Pinterest",
+        content: "Pin media",
+        refCount: 1,
+        warnings: []
+      }),
+      clonePageHtmlWithOptions: vi.fn().mockResolvedValue({
+        html: "<img data-test-id=\"closeup-image-main-MainPinImage\" src=\"https://i.pinimg.com/originals/pin.jpg\">"
+      }),
+      capturePinterestPinMedia: vi.fn().mockResolvedValue({
+        status: "captured",
+        sourceUrl: "https://www.pinterest.com/pin/27654985208435505/",
+        targetId: "target-pin",
+        kind: "image",
+        path: "/tmp/managed-profile-primary-pin-media",
+        mediaUrl: "https://i.pinimg.com/originals/pin.jpg",
+        contentType: "image/jpeg",
+        naturalWidth: 1200,
+        naturalHeight: 1600,
+        candidateSelector: "[data-test-id='closeup-image-main-MainPinImage']",
+        rejectedCandidates: []
+      }),
+      disconnect: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const { captureInspiredesignPrimaryPinMediaEvidenceFromManager } = await import("../src/inspiredesign/capture");
+    await captureInspiredesignPrimaryPinMediaEvidenceFromManager(
+      manager as never,
+      "https://www.pinterest.com/pin/27654985208435505/",
+      {
+        referenceId: "pin-ref",
+        pinMediaEvidencePath: "/tmp/managed-profile-primary-pin-media",
+        browserMode: "managed",
+        profile: "pinterest-design",
+        cookiePolicyOverride: "off",
+        challengeAutomationMode: "browser_with_helper"
+      }
+    );
+
+    expect(manager.launch).toHaveBeenCalledTimes(1);
+    expect(manager.launch).toHaveBeenCalledWith({
+      headless: true,
+      startUrl: "about:blank",
+      persistProfile: true,
+      noExtension: true,
+      profile: "pinterest-design"
+    }, expect.any(Number));
+    expect(manager.goto).toHaveBeenCalledTimes(1);
+    expect(manager.goto).toHaveBeenCalledWith(
+      "session-managed-profile-pin-media",
+      "https://www.pinterest.com/pin/27654985208435505/",
+      "domcontentloaded",
+      expect.any(Number)
+    );
+  });
+
 		it("lets direct pin media proof override page-level Pinterest login chrome", async () => {
 		const manager = {
 		launch: vi.fn().mockResolvedValue({ sessionId: "session-primary-pin-media-login-shell" }),

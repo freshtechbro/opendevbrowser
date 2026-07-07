@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   compileResearchExecutionPlan,
   createResearchFetchStepId,
@@ -10,8 +13,15 @@ import {
   resolveResearchWebFetchCandidates
 } from "../src/providers/research-executor";
 import { buildWorkflowResumeEnvelope, type WorkflowCheckpoint } from "../src/providers/workflow-contracts";
-import type { ProviderExecutor, ResearchRunInput } from "../src/providers/workflows";
+import {
+  runResearchWorkflow,
+  workflowTestUtils,
+  type ProviderExecutor,
+  type ResearchRunInput
+} from "../src/providers/workflows";
 import type { NormalizedRecord, ProviderAggregateResult, ProviderSource } from "../src/providers/types";
+
+const tempDirs: string[] = [];
 
 const isoHoursAgo = (hours: number): string => new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
@@ -81,6 +91,13 @@ const researchInput = (overrides: Partial<ResearchRunInput> = {}): ResearchRunIn
 });
 
 describe("research workflow executor", () => {
+  afterEach(async () => {
+    workflowTestUtils.resetProviderSignalState();
+    await Promise.all(tempDirs.splice(0).map(async (directory) => {
+      await rm(directory, { recursive: true, force: true });
+    }));
+  });
+
   it("compiles research search steps, timebox state, exclusions, and capped follow-up budget", () => {
     const plan = compileResearchExecutionPlan({
       input: researchInput({
@@ -89,14 +106,14 @@ describe("research workflow executor", () => {
         includeEngagement: true
       }),
       now: new Date("2026-03-30T23:00:00.000Z"),
-      getDegradedProviders: () => new Set(["social/youtube", "shopping/amazon"])
+      getDegradedProviders: () => new Set(["social/youtube", "community/reddit", "shopping/amazon"])
     });
 
     expect(plan.compiled).toMatchObject({
       topic: "phase 4 research",
       sourceSelection: "auto",
-      resolvedSources: ["web", "community", "social"],
-      autoExcludedProviders: ["social/youtube"],
+      resolvedSources: ["web", "community"],
+      autoExcludedProviders: ["community/reddit"],
       searchLimit: 5,
       followUpFetchLimit: 5,
       allowFollowUpWebFetch: true
@@ -108,8 +125,7 @@ describe("research workflow executor", () => {
     });
     expect(plan.plan.steps.map((step) => step.id)).toEqual([
       "search:web",
-      "search:community",
-      "search:social"
+      "search:community"
     ]);
     expect(plan.plan.steps[0]?.input.filters).toEqual({
       include_engagement: true,
@@ -123,14 +139,6 @@ describe("research workflow executor", () => {
       pageLimit: 1,
       hopLimit: 1,
       expansionPerRecord: 2
-    });
-    expect(plan.plan.steps[2]?.input.filters).toEqual({
-      include_engagement: true,
-      timebox_from: plan.compiled.timebox.from,
-      timebox_to: plan.compiled.timebox.to,
-      pageLimit: 1,
-      hopLimit: 0,
-      expansionPerRecord: 0
     });
   });
 
@@ -222,6 +230,67 @@ describe("research workflow executor", () => {
     expect(allPlan.compiled.sourceSelection).toBe("all");
     expect(allPlan.compiled.resolvedSources).toEqual(["web", "community", "social"]);
     expect(allPlan.compiled.allowFollowUpWebFetch).toBe(true);
+
+    const socialPlan = compileResearchExecutionPlan({
+      input: researchInput({
+        sourceSelection: "social"
+      }),
+      now: new Date("2026-03-30T23:00:00.000Z")
+    });
+
+    expect(socialPlan.compiled.sourceSelection).toBe("social");
+    expect(socialPlan.compiled.resolvedSources).toEqual(["social"]);
+    expect(socialPlan.compiled.allowFollowUpWebFetch).toBe(false);
+    expect(socialPlan.plan.steps.map((step) => step.id)).toEqual(["search:social"]);
+  });
+
+  it("scopes fallback workflow alerts to selected research providers", async () => {
+    workflowTestUtils.trackProviderSignals(makeAggregate({
+      ok: false,
+      providerOrder: ["social/youtube"],
+      failures: [{
+        provider: "social/youtube",
+        source: "social",
+        error: {
+          code: "rate_limited",
+          message: "social provider rate limited",
+          retryable: true,
+          reasonCode: "rate_limited",
+          provider: "social/youtube",
+          source: "social"
+        }
+      }],
+      metrics: { attempted: 1, succeeded: 0, failed: 1, retries: 0, latencyMs: 1 }
+    }));
+    const outputDir = await mkdtemp(join(tmpdir(), "odb-research-alert-scope-"));
+    tempDirs.push(outputDir);
+    const search = vi.fn(async (_input, options) => {
+      const source = options?.source === "community" ? "community" : "web";
+      const provider = source === "community" ? "community/reddit" : "web/default";
+      return makeAggregate({
+        sourceSelection: source,
+        providerOrder: [provider],
+        records: [makeRecord({
+          id: `${source}-result`,
+          source,
+          provider,
+          url: `https://example.com/${source}`,
+          title: `${source} research result`
+        })]
+      });
+    });
+
+    const output = await runResearchWorkflow(toRuntime({ search }), researchInput({
+      sourceSelection: "auto",
+      outputDir
+    }));
+    const meta = output.meta as {
+      selection?: { resolved_sources?: string[] };
+      alerts?: Array<Record<string, unknown>>;
+    };
+
+    expect(meta.selection?.resolved_sources).toEqual(["web", "community"]);
+    expect(meta.alerts).toEqual([]);
   });
 
   it("accepts enriched checkpoint aggregates with mixed provider sources and optional metadata", () => {

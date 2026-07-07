@@ -14,8 +14,8 @@ import type {
 import type { ResearchRunInput } from "./workflows";
 import type { WorkflowCheckpoint, WorkflowPlan, WorkflowPlanStep, WorkflowResumeEnvelope } from "./workflow-contracts";
 
-const RESEARCH_AUTO_SOURCES: ProviderSource[] = ["web", "community", "social"];
-const RESEARCH_ALL_SOURCES: ProviderSource[] = [...RESEARCH_AUTO_SOURCES];
+const RESEARCH_AUTO_SOURCES: ProviderSource[] = ["web", "community"];
+const RESEARCH_ALL_SOURCES: ProviderSource[] = ["web", "community", "social"];
 const DEFAULT_RESEARCH_SEARCH_LIMIT = 10;
 export const RESEARCH_WEB_SEARCH_FETCH_LIMIT = 5;
 const RESEARCH_COMMUNITY_EXPANSION_PER_RECORD = 2;

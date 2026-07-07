@@ -89,6 +89,7 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
           }
         }
         const cookieSource = deps.config.get().providers?.cookieSource;
+        const extensionAuthReady = deps.relay?.status().extensionHandshakeComplete === true;
         if (isHarvest && !args.query && (!args.urls || args.urls.length === 0)) {
           throw new Error("inspiredesign harvest requires query or URLs.");
         }
@@ -110,7 +111,8 @@ export function createInspiredesignRunTool(deps: ToolDeps): ToolDefinition {
           browserMode: args.browserMode,
           useCookies: args.useCookies,
           challengeAutomationMode: args.challengeAutomationMode,
-          cookiePolicyOverride: args.cookiePolicyOverride
+          cookiePolicyOverride: args.cookiePolicyOverride,
+          extensionAuthReady
         }, {
           mediaAnalysisConfig: deps.config.get().inspiredesign.mediaAnalysis,
           captureReference: shouldProvideCaptureReference

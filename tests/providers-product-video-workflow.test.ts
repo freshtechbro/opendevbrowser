@@ -419,6 +419,56 @@ describe("product-video substrate adoption", () => {
     expect(output.screenshots).toEqual([]);
   });
 
+  it("carries Best Buy country-selection provider guidance into product-video handoff", async () => {
+    const fetch = vi.fn(async () => makeAggregate({
+      records: [makeRecord({
+        provider: "shopping/bestbuy",
+        url: "https://www.bestbuy.com/site/logitech-mx-master-3s/6502574.p?skuId=6502574"
+      })],
+      failures: [makeFailure("shopping/bestbuy", "shopping", {
+        message: "Best Buy country-selection interstitial is blocking the product detail page.",
+        reasonCode: "env_limited",
+        details: {
+          constraint: {
+            kind: "render_required",
+            evidenceCode: "bestbuy_international_gate",
+            providerShell: "bestbuy_international_gate",
+            message: "Choose a country or region to continue."
+          }
+        }
+      })]
+    }));
+
+    const output = await runProductVideoWorkflow(toRuntime({ fetch }), productVideoInput({
+      product_url: "https://www.bestbuy.com/site/logitech-mx-master-3s/6502574.p?skuId=6502574"
+    }));
+    const recoveryStep = (output.suggestedSteps as Array<{ reason?: string }>).find((step) => (
+      step.reason?.includes("Best Buy country-selection interstitial")
+    ));
+    const meta = output.meta as {
+      primaryConstraint?: {
+        summary?: string;
+        guidance?: {
+          reason?: string;
+          recommendedNextCommands?: string[];
+        };
+      };
+    };
+
+    expect(meta.primaryConstraint?.summary).toBe(
+      "Bestbuy is blocked by the Best Buy country-selection interstitial."
+    );
+    expect(meta.primaryConstraint?.guidance?.reason).toBe(
+      "Bestbuy needs the Best Buy country-selection interstitial cleared before retrying."
+    );
+    expect(recoveryStep?.reason).toContain(
+      "Bestbuy is blocked by the Best Buy country-selection interstitial."
+    );
+    expect(recoveryStep?.reason).toContain(
+      "Choose the shopping country or region in the preserved browser session."
+    );
+  });
+
   it("uses presentation compiler output for noisy marketplace copy and features", async () => {
     const fetch = vi.fn(async () => makeAggregate({
       records: [makeRecord({

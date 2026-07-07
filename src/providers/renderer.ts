@@ -972,8 +972,10 @@ export const renderShopping = (args: {
   const markdown = renderShoppingBriefingMarkdown(briefing);
   const guidanceLines = shoppingBriefingGuidanceLines(briefing);
   const comparisonCsv = toComparisonCsv(args.offers);
+  const buyingReadiness = briefing.gate;
   const contextPayload = {
     query: args.query,
+    buyingReadiness,
     highlights: guidanceLines,
     offers: args.offers,
     meta: args.meta
@@ -991,6 +993,7 @@ export const renderShopping = (args: {
     return {
       response: {
         mode: args.mode,
+        buyingReadiness,
         summary: guidanceLines.join("\n"),
         meta: args.meta
       },
@@ -1001,6 +1004,7 @@ export const renderShopping = (args: {
     return {
       response: {
         mode: args.mode,
+        buyingReadiness,
         offers: args.offers,
         meta: args.meta
       },
@@ -1011,6 +1015,7 @@ export const renderShopping = (args: {
     return {
       response: {
         mode: args.mode,
+        buyingReadiness,
         markdown,
         meta: args.meta
       },
@@ -1021,6 +1026,7 @@ export const renderShopping = (args: {
     return {
       response: {
         mode: args.mode,
+        buyingReadiness,
         context: contextPayload,
         meta: args.meta
       },
@@ -1031,6 +1037,7 @@ export const renderShopping = (args: {
   return {
     response: {
       mode: "path",
+      buyingReadiness,
       meta: args.meta
     },
     files

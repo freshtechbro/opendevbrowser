@@ -124,6 +124,7 @@ export type InspiredesignPrimaryMotionCaptureOptions = InspiredesignPrimaryCaptu
 export type InspiredesignPrimaryPinMediaCaptureOptions = InspiredesignPrimaryCaptureCookieOptions & {
   timeoutMs?: number;
   browserMode?: WorkflowBrowserMode;
+  profile?: string;
   challengeAutomationMode?: ChallengeAutomationMode;
   referenceId: string;
   pinMediaEvidencePath: string;
@@ -1008,6 +1009,7 @@ const launchPrimaryCaptureSession = async (
   remainingTimeoutMs: () => number,
   options: InspiredesignPrimaryCaptureCookieOptions & {
     browserMode?: WorkflowBrowserMode;
+    profile?: string;
     challengeAutomationMode?: ChallengeAutomationMode;
     maxNetworkIdleWaitMs?: number;
     maxSessionSetupStepMs?: number;
@@ -1015,12 +1017,14 @@ const launchPrimaryCaptureSession = async (
   }
 ): Promise<{ sessionId: string }> => {
   const launchTimeoutMs = captureSessionSetupStepTimeout(remainingTimeoutMs, options.maxSessionSetupStepMs);
+  const managedProfile = options.browserMode !== "extension" ? options.profile?.trim() : undefined;
   const session = await withCaptureDeadline(
     manager.launch({
       headless: options.browserMode !== "extension",
       startUrl: "about:blank",
-      persistProfile: false,
-      noExtension: shouldForceManagedPrimaryCapture(options.browserMode)
+      persistProfile: Boolean(managedProfile),
+      noExtension: Boolean(managedProfile) || shouldForceManagedPrimaryCapture(options.browserMode),
+      ...(managedProfile ? { profile: managedProfile } : {})
     }, launchTimeoutMs),
     launchTimeoutMs,
     "primary media capture session launch"

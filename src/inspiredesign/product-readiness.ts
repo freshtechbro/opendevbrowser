@@ -153,6 +153,9 @@ const normalizeUrlForAuthority = (value: unknown): string | undefined => {
   try {
     const url = new URL(value);
     if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    if (url.pathname.length > 1 && url.pathname.endsWith("/")) {
+      url.pathname = url.pathname.replace(/\/+$/u, "");
+    }
     return url.href;
   } catch {
     return undefined;

@@ -90,6 +90,16 @@ const hasExecutionBlocker = (result: unknown): boolean => {
   return asRecord(meta?.blocker) !== null;
 };
 
+const hasIncompleteExecution = (result: unknown): boolean => {
+  const execution = asRecord(asRecord(result)?.execution);
+  const meta = asRecord(execution?.meta);
+  if (!execution || !meta || asRecord(meta.blocker)) {
+    return false;
+  }
+  const failures = Array.isArray(execution.failures) ? execution.failures : [];
+  return meta.ok === false || meta.partial === true || failures.length > 0;
+};
+
 const buildMacroResolveMessage = (execute: boolean, result: unknown): string => {
   const summary = readFollowthroughSummary(result);
   const nextStep = readWorkflowGuidanceNextStep(result);
@@ -101,6 +111,9 @@ const buildMacroResolveMessage = (execute: boolean, result: unknown): string => 
   }
   if (hasExecutionBlocker(result)) {
     return "Macro resolved, but execution is blocked and needs follow-up.";
+  }
+  if (hasIncompleteExecution(result)) {
+    return "Macro transport succeeded, but execution is incomplete and unblocked. Inspect execution.meta.ok, execution.meta.partial, and execution.failures before treating results as complete.";
   }
   return "Macro resolved and executed.";
 };
